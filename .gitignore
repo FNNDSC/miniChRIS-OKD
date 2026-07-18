@@ -1,0 +1,17 @@
+# Rendered configs, downloaded binaries/ISOs, kubeconfigs, credentials,
+# VM disks, reports — everything host- or install-specific.
+okd/state/
+
+# Per-host configuration overrides.
+config.local.env
+
+# VM disks anywhere.
+*.qcow2
+
+# Python (Phase 3 smoke test).
+.venv/
+__pycache__/
+*.egg-info/
+
+# OS noise.
+.DS_Store
