@@ -48,7 +48,8 @@ case "${cmd}" in
   versions)
     echo "OKD_VERSION:                     ${OKD_VERSION}"
     echo "LOCAL_PATH_PROVISIONER_VERSION:  ${LOCAL_PATH_PROVISIONER_VERSION}"
-    echo "CHRIS_CHART_VERSION:             ${CHRIS_CHART_VERSION} (Phase 2)"
+    echo "CHRIS_CHART_VERSION:             ${CHRIS_CHART_VERSION}"
+    echo "CHRISOMATIC_IMAGE:               ${CHRISOMATIC_IMAGE}"
     if [[ -f "${ADMIN_KUBECONFIG}" ]]; then
       live="$(admin_oc get clusterversion version -o jsonpath='{.status.desired.version}' 2>/dev/null || true)"
       echo "cluster (live):                  ${live:-unreachable}"

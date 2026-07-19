@@ -155,10 +155,53 @@ Typical causes:
 - `restricted-pod` image-pull timeouts → registry.access.redhat.com
   reachability; re-run `just okd-verify`.
 
+## ChRIS deployment (Phase 2)
+
+First stop for anything ChRIS: `just chris-status`, then
+`just chris-logs <component>` (components listed in `just -l`).
+
+- **Bitnami pods in `ImagePullBackOff`** (`postgresql`, `rabbitmq`, `nats`,
+  or heart's `wait-db` init container) → Broadcom removed the versioned
+  `docker.io/bitnami/*` tags the chart pins; the harness redirects them to
+  `docker.io/bitnamilegacy` with an `ImageTagMirrorSet`
+  ([chris/bitnami-mirror.yaml](../chris/bitnami-mirror.yaml), applied by
+  `chris-deploy`). Check `oc get imagetagmirrorset` and
+  `oc get mcp master` — the machine-config operator needs a minute to
+  propagate the mirror into CRI-O's `registries.conf` (no reboot). Pods
+  retry pulls on their own once it lands.
+- **heart stuck in `Init:*`** → look at the specific init container:
+  `oc -n chris logs deploy/chris-heart -c wait-db` (database not up),
+  `-c migratedb` (Django migrations), `-c create-incluster-cr`
+  (compute-resource/plugin registration — needs egress to
+  `cube.chrisproject.org`), `-c wait-rabbitmq`.
+- **seed job failed** → `just chris-logs seed`; the rendered config is at
+  `okd/state/render/chrisomatic.yml`. chrisomatic is idempotent — fix and
+  re-run `just chris-seed`. Plugin registration needs egress to the peer
+  CUBE (`cube.chrisproject.org`).
+- **plugin instance goes `cancelled` seconds after `scheduled`** →
+  `just chris-logs worker-mains`. If pfcon rejected the submission with
+  `Missing required parameter in the post body: args`, the instance was
+  created with **zero parameter values** — CUBE 6.11.0 submits an empty
+  `args` that pfcon 5.2.3 refuses (observed 2026-07-18). Workaround:
+  always pass at least one explicit parameter (e.g. `prefix` for
+  `pl-simpledsapp`); worth an upstream issue.
+- **plugin instance stuck/errored** (Phase 3 smoke test) →
+  `just chris-logs plugins` for the job pods pman created, and
+  `just chris-logs pman` for why they didn't schedule (node selector,
+  SCC, volume).
+- **redeploy fails with an immutable-PVC or "cannot set pfcon..." error**
+  → you changed storage-affecting values on a live release; the chart
+  guards against self-destruction. `just chris-nuke && just chris-deploy`.
+
 ## Teardown
 
+- `just chris-teardown` — uninstall the ChRIS release, keep PVCs (data) and
+  the project for a fast redeploy.
+- `just chris-nuke` — additionally delete PVCs, the `chris` project, and
+  the bitnami tag mirror.
 - `just okd-teardown` — destroy VM + cluster state, keep binaries/network.
+  Anything ChRIS dies with the cluster.
 - `just okd-nuke` — additionally remove the libvirt network, restore/stop
   HAProxy, delete all of `okd/state/`. Back to a clean machine.
-- Both are safe to run when things are half-created (idempotent, tolerate
+- All are safe to run when things are half-created (idempotent, tolerate
   missing resources).

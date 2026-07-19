@@ -57,6 +57,41 @@ okd-teardown *args:
 okd-nuke *args:
     @scripts/okd-teardown.sh --nuke {{ args }}
 
+# Deploy minimal ChRIS onto the cluster via the pinned FNNDSC/charts release.
+[group('(2) chris')]
+chris-deploy:
+    @scripts/chris-deploy.sh
+
+# Seed the test user + smoke-test plugins via a chrisomatic Job (idempotent).
+[group('(2) chris')]
+chris-seed:
+    @scripts/chris-seed.sh
+
+# Release, pods, storage, Route, seed job, URLs and credentials.
+[group('(2) chris')]
+chris-status:
+    @scripts/chris-status.sh
+
+# Logs for one component: heart server worker-mains worker-periodic pfcon pman db rabbitmq nats seed plugins.
+[group('(2) chris')]
+chris-logs *args:
+    @scripts/chris-logs.sh {{ args }}
+
+# Print the CUBE URL (and open it when a GUI opener exists).
+[group('(2) chris')]
+chris-open:
+    @scripts/chris-status.sh open
+
+# Uninstall the ChRIS release (keeps PVCs and the project for redeploys).
+[group('(2) chris')]
+chris-teardown *args:
+    @scripts/chris-teardown.sh {{ args }}
+
+# Full ChRIS clean-slate: release + PVCs + project + bitnami mirror.
+[group('(2) chris')]
+chris-nuke *args:
+    @scripts/chris-teardown.sh --nuke {{ args }}
+
 # Render install-config/agent-config templates into okd/state/.
 [group('helper')]
 render:

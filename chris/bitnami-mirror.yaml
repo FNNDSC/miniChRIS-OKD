@@ -1,0 +1,22 @@
+# chris/bitnami-mirror.yaml — cluster-wide tag mirror for Bitnami images.
+#
+# Broadcom removed Bitnami's versioned tags from docker.io/bitnami in 2025;
+# they remain available under docker.io/bitnamilegacy. chris chart 1.0.8 pins
+# such tags in its postgresql/rabbitmq/nats subcharts AND hard-codes one in
+# the heart pod's wait-db init container (not overridable by values), so a
+# values-only fix cannot cover it. This ImageTagMirrorSet redirects every
+# docker.io/bitnami tag pull to bitnamilegacy at the container-runtime level,
+# falling back to the source if a mirror tag is missing.
+#
+# Applied by chris-deploy.sh, removed by chris-teardown.sh --nuke. The
+# machine-config operator propagates it to CRI-O's registries.conf without
+# rebooting the node. ImageTagMirrorSet exists on real OCP too (4.13+).
+apiVersion: config.openshift.io/v1
+kind: ImageTagMirrorSet
+metadata:
+  name: minichris-bitnami-legacy
+spec:
+  imageTagMirrors:
+    - source: docker.io/bitnami
+      mirrors:
+        - docker.io/bitnamilegacy

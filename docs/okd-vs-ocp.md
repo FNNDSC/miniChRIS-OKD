@@ -52,6 +52,22 @@ Add entries as they are discovered; date them.
 - **Bitnami subcharts** (PostgreSQL, RabbitMQ) rely on
   `global.compatibility.openshift.adaptSecurityContext: auto`; behavior
   should be identical on OCP but is worth one explicit check.
+- **2026-07-18 — Bitnami image purge bites chart 1.0.8:** every
+  `docker.io/bitnami/*` tag the chart (and its subcharts) pins now 404s —
+  Broadcom moved them to `docker.io/bitnamilegacy`. One reference (heart's
+  `wait-db` init container) is hard-coded in the chart, so values overrides
+  can't fix it; the harness applies a cluster-wide `ImageTagMirrorSet`
+  instead ([chris/bitnami-mirror.yaml](../chris/bitnami-mirror.yaml)).
+  `ImageTagMirrorSet` is standard OCP 4.13+ API, but a production OCP site
+  may prefer mirroring into an internal registry (as FNNDSC's NERC values
+  do) or getting the chart fixed upstream. → Re-verify the mechanism of
+  choice on real OCP; upstream chart issue worth filing.
+- **2026-07-18 — open user registration for seeding:** the harness sets
+  `DISABLE_USER_ACCOUNT_CREATION: "false"` because chrisomatic creates the
+  smoke-test user through CUBE's public registration endpoint (the switch
+  removes POST outright, superuser included). Production (NERC) keeps it
+  `"true"` with LDAP/SSO. → On any shared/production deployment, disable
+  registration again and provision users via the IdP.
 
 ## How to use this log
 

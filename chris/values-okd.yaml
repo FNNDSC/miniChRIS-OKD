@@ -1,0 +1,64 @@
+# chris/values-okd.yaml — OKD/OpenShift-specific overrides for the fnndsc/chris
+# chart (pinned in config.env, recorded in docs/versions.md).
+#
+# Host-agnostic on purpose: anything derived from a particular harness instance
+# is injected by scripts/chris-deploy.sh at install time:
+#   route.host                        cube.apps.<cluster domain>
+#   pfcon.nodeSelector                kubernetes.io/hostname=<the single node>
+#   pfcon.pman.extraEnv.NODE_SELECTOR (same node — RWO volume pin, see below)
+#
+# NOTE: the chart's Bitnami subcharts pin docker.io/bitnami/* tags that Broadcom
+# removed from Docker Hub (they live on under docker.io/bitnamilegacy). That is
+# fixed cluster-wide by chris/bitnami-mirror.yaml (applied by chris-deploy.sh),
+# not here — one hard-coded bitnami image in the chart's heart pod cannot be
+# overridden by values at all. Copying this file to another cluster requires
+# that mirror (or equivalent) too.
+
+global:
+  # Bitnami subcharts (postgresql/rabbitmq/nats): drop the charts' hard-coded
+  # UIDs/fsGroups so OpenShift SCCs assign them (restricted-v2).
+  compatibility:
+    openshift:
+      adaptSecurityContext: auto
+
+# ChRIS API exposure: an OpenShift Route with TLS terminated at the router
+# (self-signed router cert on this harness) and HTTP redirected to HTTPS.
+route:
+  enabled: true
+  # host: injected by chris-deploy.sh
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+cube:
+  config:
+    # CUBE sits behind the router's edge TLS: trust the forwarded headers so
+    # generated absolute URLs come out https:// (per chart/ChRIS helm docs).
+    DJANGO_SECURE_PROXY_SSL_HEADER: "HTTP_X_FORWARDED_PROTO,https"
+    DJANGO_USE_X_FORWARDED_HOST: "true"
+    # chrisomatic creates the smoke-test user through the public registration
+    # endpoint, which this switch would remove outright (405 even for the
+    # superuser). Open registration is acceptable for a dev harness;
+    # production (NERC) keeps it disabled and uses LDAP/SSO instead.
+    DISABLE_USER_ACCOUNT_CREATION: "false"
+
+  # local-path PVs are ReadWriteOnce: keep every pod that mounts the shared
+  # storebase volume on the node that holds it. Trivially satisfied on a
+  # single node, but keeps these values honest for multi-node clusters
+  # (chart-documented RWO workaround, same as FNNDSC's NERC production).
+  enablePodAffinityWorkaround: true
+
+postgresql:
+  primary:
+    persistence:
+      size: 5Gi
+
+rabbitmq:
+  persistence:
+    size: 1Gi
+
+pfcon:
+  # Shared CUBE/pfcon file storage (PVC <release>-storebase).
+  storage:
+    size: 20Gi
+  # nodeSelector + pman NODE_SELECTOR: injected by chris-deploy.sh (RWO pin).
