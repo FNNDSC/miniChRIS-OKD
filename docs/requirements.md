@@ -26,12 +26,39 @@ VM_DISK_GB=150
 The official SNO floor is 8 vCPU / 16 GiB / 120 GB; we size above it because
 ChRIS (Phase 2) runs on top of the cluster.
 
+### Hosts below the Minimum tier
+
+`host-check` enforces two independent things: **relative headroom** (the host
+needs `VM_VCPUS + 2` threads, `VM_RAM_MIB + 8 GiB`, `VM_DISK_GB + 50 GB`) and
+**absolute floors**. Below the hard floor — 4 vCPU / 16 GiB / 120 GB — it fails
+preflight, because SNO will not come up. Between the hard floor and the Minimum
+tier it warns and continues.
+
+An **8-thread host is the practical edge**: headroom caps you at `VM_VCPUS=6`,
+two below the Minimum tier. Such a box does install and does run ChRIS, but
+every operator rollout is slow — and the first casualty is the post-install
+cluster-stability wait, because it needs one contiguous window in which *all*
+~34 operators are simultaneously settled. If `okd-verify`'s
+`cluster-operators` check times out, give it a bigger budget in
+`config.local.env`:
+
+```sh
+VM_VCPUS=6
+CLUSTER_STABLE_TIMEOUT=40m
+```
+
+[troubleshooting.md](troubleshooting.md#cluster-operators-fails) explains how
+to tell a slow settle apart from a genuinely broken operator.
+
 Notes:
 
 - **Nested virtualization** (harness inside a cloud VM) works if the VM
   exposes VT-x/AMD-V; expect slower installs.
 - **Disk:** point `IMAGES_DIR` at your big volume if the repo does not live
-  on one. `host-check` measures free space at the actual target.
+  on one. `host-check` measures free space at the actual target. Use **NVMe**
+  — etcd needs WAL fsync p99 under 10 ms, and miami.local measures ~7.8 ms on
+  a Micron 2300, so a spinning disk (`lsblk -o NAME,ROTA` → `ROTA=1`) is not
+  viable.
 - The host keeps working normally: default VM leaves >70% of the reference
   box free. Daily CUBE development stays on Docker Compose (miniChRIS-docker).
 

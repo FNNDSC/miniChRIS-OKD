@@ -70,6 +70,26 @@ until oc login "${API_URL}" \
   sleep 15
 done
 
+# --- 3. let the cluster settle before handing off to okd-verify ---------------
+# The IdP patch above re-rolls oauth-openshift (and, transitively, console),
+# so the cluster is guaranteed to be mid-rollout right here. The login poll is
+# a weaker signal than it looks: 'oc login' starts working as soon as one
+# oauth pod serves, well before the authentication operator reports itself
+# rolled out. Absorb that churn here rather than leaving okd-verify's
+# cluster-operators check to race it (FNNDSC/HARBOR-planning#128).
+#
+# Advisory: post-install's own work is done either way, and okd-verify is the
+# real gate — a slow settle should not fail this step.
+log "waiting for cluster operators to settle (period ${CLUSTER_STABLE_PERIOD}, timeout ${CLUSTER_STABLE_TIMEOUT})"
+if admin_oc adm wait-for-stable-cluster \
+    --minimum-stable-period="${CLUSTER_STABLE_PERIOD}" \
+    --timeout="${CLUSTER_STABLE_TIMEOUT}"; then
+  log "cluster operators are stable"
+else
+  warn "operators did not stabilise within ${CLUSTER_STABLE_TIMEOUT} — continuing anyway"
+  warn "'just okd-verify' re-checks and reports which operators are unsettled"
+fi
+
 log "post-install complete"
 log "  developer login: oc login ${API_URL} -u ${DEVELOPER_USER} -p \$(cat ${DEVELOPER_PASSWORD_FILE}) --insecure-skip-tls-verify"
 log "next: 'just okd-verify'"

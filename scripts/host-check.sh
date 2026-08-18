@@ -18,6 +18,17 @@ CPU_HEADROOM=2       # threads
 RAM_HEADROOM_MIB=8192
 DISK_HEADROOM_GB=50  # over VM_DISK_GB, for ISO + boot image cache
 
+# Absolute VM sizing floors, independent of how big the host is. The headroom
+# checks above are relative — on an 8-thread box they happily pass VM_VCPUS=2.
+#   HARD : below this SNO does not come up at all — fail preflight.
+#   MIN  : the documented Minimum tier (docs/requirements.md). Between HARD and
+#          MIN the cluster installs but settles slowly, and the post-install
+#          operator-stability wait is the first casualty
+#          (FNNDSC/HARBOR-planning#128) — advise rather than block.
+VM_VCPUS_HARD=4;      VM_VCPUS_MIN=8
+VM_RAM_MIB_HARD=16384; VM_RAM_MIB_MIN=24576
+VM_DISK_GB_HARD=120;   VM_DISK_GB_MIN=150
+
 log "preflight for ACCESS_MODE=${ACCESS_MODE}, cluster domain ${CLUSTER_DOMAIN}"
 
 # --- platform ---------------------------------------------------------------
@@ -60,6 +71,23 @@ if [[ "${free_gb}" -ge "${need_gb}" ]]; then
 else
   bad "disk: ${free_gb} GB free at ${probe_dir} < ${need_gb} GB (point IMAGES_DIR at a bigger volume)"
 fi
+
+# floor_check LABEL VALUE MIN HARD UNIT — hard-fail below HARD, advise below MIN.
+floor_check() {
+  local label="$1" value="$2" min="$3" hard="$4" unit="$5"
+  if [[ "${value}" -lt "${hard}" ]]; then
+    bad "${label}: ${value}${unit} below the hard floor of ${hard}${unit} — SNO will not come up"
+  elif [[ "${value}" -lt "${min}" ]]; then
+    note "${label}: ${value}${unit} below the documented minimum of ${min}${unit} — installs, but"
+    note "         expect slow operator settling and a sluggish Phase 2; if okd-verify's"
+    note "         cluster-operators check times out, raise CLUSTER_STABLE_TIMEOUT (now ${CLUSTER_STABLE_TIMEOUT})"
+  else
+    ok "${label}: ${value}${unit} meets the documented minimum (${min}${unit})"
+  fi
+}
+floor_check "VM vCPUs" "${VM_VCPUS}"   "${VM_VCPUS_MIN}"   "${VM_VCPUS_HARD}"   ""
+floor_check "VM RAM"   "${VM_RAM_MIB}" "${VM_RAM_MIB_MIN}" "${VM_RAM_MIB_HARD}" " MiB"
+floor_check "VM disk"  "${VM_DISK_GB}" "${VM_DISK_GB_MIN}" "${VM_DISK_GB_HARD}" " GB"
 
 # --- tooling ----------------------------------------------------------------
 for cmd in virsh virt-install qemu-img envsubst jq curl ss getent openssl; do

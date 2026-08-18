@@ -19,9 +19,9 @@ require_cluster
 
 NUKE=false
 for arg in "$@"; do
+  # shellcheck disable=SC2034  # CONFIRM is read by confirm() in lib/common.sh
   case "${arg}" in
     --nuke) NUKE=true ;;
-    # shellcheck disable=SC2034  # read by confirm() in lib/common.sh
     --yes) CONFIRM=yes ;;
     *) die "unknown argument: ${arg} (usage: chris-teardown.sh [--nuke] [--yes])" ;;
   esac

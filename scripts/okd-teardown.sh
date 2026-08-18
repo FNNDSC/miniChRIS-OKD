@@ -16,9 +16,9 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
 NUKE=false
 for arg in "$@"; do
+  # shellcheck disable=SC2034  # CONFIRM is read by confirm() in lib/common.sh
   case "${arg}" in
     --nuke) NUKE=true ;;
-    # shellcheck disable=SC2034  # read by confirm() in lib/common.sh
     --yes) CONFIRM=yes ;;
     *) die "unknown argument: ${arg} (usage: okd-teardown.sh [--nuke] [--yes])" ;;
   esac

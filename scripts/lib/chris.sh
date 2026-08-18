@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034  # values below are consumed by sourcing scripts
 # scripts/lib/chris.sh — Phase 2 (issue #130) shared plumbing: derived ChRIS
 # values and helpers on top of lib/common.sh.
 #

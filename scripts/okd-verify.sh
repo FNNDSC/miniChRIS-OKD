@@ -67,12 +67,49 @@ check_node_ready() {
   admin_oc wait node --all --for=condition=Ready --timeout=120s
 }
 
+# dump_unstable_operators — every operator that is not Available, or that is
+# Progressing/Degraded, with the reason and message behind each condition.
+# wait-for-stable-cluster names the unsettled operators but never says why,
+# which is precisely what a reader of the detail log needs.
+dump_unstable_operators() {
+  local out
+  out="$(admin_oc get clusteroperators -o json | jq -r '
+    .items[]
+    | select(
+        ([.status.conditions[]? | select(.type == "Available" and .status == "True")] | length == 0)
+        or ([.status.conditions[]? | select((.type == "Degraded" or .type == "Progressing") and .status == "True")] | length > 0)
+      )
+    | "\(.metadata.name):\n" + (
+        [ .status.conditions[]?
+          | select(.type != "Upgradeable" and .type != "EvaluationConditionsDetected")
+          | "  \(.type)=\(.status)  reason=\(.reason // "-")\n    \(.message // "-")"
+        ] | join("\n")
+      )')"
+  echo "--- operators not in a stable state (reasons) ---"
+  if [[ -n "${out}" ]]; then
+    printf '%s\n' "${out}"
+  else
+    echo "(none — every operator was already stable again by the time this dump ran)"
+  fi
+}
+
 check_cluster_operators() {
   admin_oc get clusteroperators
   # Operators can be legitimately mid-rollout when verify starts — e.g. the
   # oauth stack re-rolls right after okd-postinstall's IdP patch — so wait
-  # for sustained stability instead of snapshotting.
-  admin_oc adm wait-for-stable-cluster --minimum-stable-period=30s --timeout=10m
+  # for sustained stability instead of snapshotting. okd-postinstall now
+  # absorbs that settle itself; this stays as the standalone-run gate.
+  if admin_oc adm wait-for-stable-cluster \
+      --minimum-stable-period="${CLUSTER_STABLE_PERIOD}" \
+      --timeout="${CLUSTER_STABLE_TIMEOUT}"; then
+    return 0
+  fi
+  # Capture *why* while it is still true — the wait above only logs
+  # "clusteroperators/<name> is <state>" lines.
+  dump_unstable_operators
+  echo "--- final operator table ---"
+  admin_oc get clusteroperators
+  return 1
 }
 
 check_scc_present() {

@@ -141,11 +141,77 @@ https://api.<cluster domain>:6443/healthz`. For long runs, start inside
 Each check's full output is in `okd/state/reports/verify-report-*.log`.
 Typical causes:
 
-- `cluster-operators` fails right after an install with the `authentication`
-  operator unavailable → the oauth stack re-rolls after `okd-postinstall`'s
-  identity-provider patch; the check now waits for sustained stability
-  (`oc adm wait-for-stable-cluster`), so on current scripts simply re-run
-  `just okd-verify`.
+### `cluster-operators` fails
+
+This check runs `oc adm wait-for-stable-cluster`, which requires **all ~34
+cluster operators to report `Available=True, Progressing=False,
+Degraded=False` simultaneously for `CLUSTER_STABLE_PERIOD` (30 s), within
+`CLUSTER_STABLE_TIMEOUT` (20 m)**. One flapping operator resets the window for
+the whole set, so this is the only check that can fail while the cluster is
+perfectly usable — expect the other 11 to pass.
+
+**First: just re-run it.** `just okd-verify` is idempotent and takes ~2 min.
+Do *not* re-run `just okd-install`; it aborts at `render` while the VM exists.
+
+The overwhelmingly common cause is losing a race with post-install churn:
+`okd-postinstall` patches the OAuth CR, which re-rolls `oauth-openshift` and,
+transitively, `console`. `okd-postinstall` now waits for the cluster to settle
+before it returns, but on a slow host that wait can itself expire.
+
+**Find the actual operator** — it is already in the detail log:
+
+```sh
+grep -E 'clusteroperators/' okd/state/reports/verify-report-<stamp>.log \
+  | sort | uniq -c | sort -rn
+sed -n '/cluster-operators:/,/scc-present:/p' okd/state/reports/verify-report-<stamp>.log
+```
+
+`wait-for-stable-cluster` logs `clusteroperators/<name> is <state> at <time>`
+(states: `Unavailable`, `Progressing`, `Degraded`, `Stable`). On failure the
+check then dumps each unstable operator's conditions **with reasons and
+messages**, followed by a final operator table.
+
+Against a live cluster:
+
+```sh
+eval "$(just okd-env)"
+oc get co
+oc get co -o json | jq -r '.items[]
+  | select(([.status.conditions[]|select(.type=="Available" and .status=="True")]|length==0)
+        or ([.status.conditions[]|select((.type=="Degraded" or .type=="Progressing") and .status=="True")]|length>0))
+  | "\(.metadata.name): " + ([.status.conditions[]|select(.status=="True" and (.type=="Degraded" or .type=="Progressing"))|.message]|join(" | "))'
+```
+
+**Then read the answer:**
+
+| Operator | Meaning | Action |
+|---|---|---|
+| `authentication` (± `console`) | The post-IdP re-roll — `OAuthServerDeploymentAvailable: no oauth-openshift... pods available` | Re-run verify; nothing is wrong |
+| `monitoring` | Prometheus still starting; 15+ min on a small host | Re-run verify, or raise `CLUSTER_STABLE_TIMEOUT` |
+| `etcd`, `kube-apiserver` | Disk too slow or CPU starved — see below | Real capacity problem |
+| `machine-config` | A MachineConfig failed to apply | `oc get mcp,nodes`; `oc describe co machine-config` |
+| `image-registry` | Unexpected: on `platform: none` it ships `managementState: Removed` and needs no storage | `oc get configs.imageregistry.operator.openshift.io cluster -o yaml` |
+| `insights`, `openshift-samples`, `marketplace` | Egress-dependent, non-fatal | Check outbound reachability to quay.io |
+
+**If it keeps timing out, it is capacity.** Under-provisioned hosts never get
+one contiguous stable window. `host-check` warns when `VM_VCPUS`/`VM_RAM_MIB`/
+`VM_DISK_GB` sit below the Minimum tier in [requirements.md](requirements.md),
+but it cannot make a small box fast. Measure:
+
+```sh
+nproc; free -g | head -2
+lsblk -d -o NAME,ROTA,SIZE,MODEL     # ROTA=1 is a spinning disk — fatal for etcd
+oc adm top node
+oc -n openshift-monitoring exec -c prometheus prometheus-k8s-0 -- \
+  curl -s --data-urlencode 'query=histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))' \
+  http://localhost:9090/api/v1/query
+```
+
+etcd WAL fsync p99 must stay under 10 ms. For reference, miami.local (10 vCPU,
+NVMe) measures ~7.8 ms — the headroom is thin even on good hardware. If yours
+is worse, move `IMAGES_DIR` to an NVMe. If `nproc` is small, raise
+`CLUSTER_STABLE_TIMEOUT` in `config.local.env` and accept slower settling.
+
 
 - `route-edge` fails but everything else passes → router/HAProxy/DNS path
   (see above), not the cluster.

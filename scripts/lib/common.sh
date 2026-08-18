@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034  # paths/creds below are consumed by sourcing scripts
 # scripts/lib/common.sh — shared plumbing for every harness script:
 # config loading, derived values, logging, template rendering, preconditions.
 #
