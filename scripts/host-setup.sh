@@ -25,6 +25,7 @@ packages=(
   qemu-utils             # qemu-img
   gettext-base           # envsubst
   bind9-dnsutils         # dig (net-setup DNS assertions)
+  python3-venv           # smoke test virtualenv (Phase 3, scripts/smoke.sh)
   jq
   curl
 )

@@ -13,7 +13,7 @@ test. It is a validation instrument, not production infrastructure.
 |---|---|---|
 | 1 — OKD dev harness (`just okd-install`) | [#129](https://github.com/FNNDSC/HARBOR-planning/issues/129) | ✅ implemented |
 | 2 — ChRIS via FNNDSC/charts (`just chris-deploy`) | [#130](https://github.com/FNNDSC/HARBOR-planning/issues/130) | ✅ implemented |
-| 3 — functional smoke test (`just smoke`) | [#131](https://github.com/FNNDSC/HARBOR-planning/issues/131) | ⏳ next |
+| 3 — functional smoke test (`just smoke`) | [#131](https://github.com/FNNDSC/HARBOR-planning/issues/131) | ✅ implemented |
 
 ## Quickstart (clean Linux box)
 
@@ -97,6 +97,31 @@ Note: the chart's Bitnami images are pulled through a
 automatically) because Broadcom removed the pinned tags from Docker Hub —
 see [docs/okd-vs-ocp.md](docs/okd-vs-ocp.md).
 
+## Functional smoke test (Phase 3)
+
+One command proves the deployment *works*, not merely that pods started:
+auth → upload → `pl-dircopy` (fs) → chained `pl-simpledsapp` (ds, the full
+worker → compute path) → bounded poll → download → checksum verification —
+through the Route with verified TLS, as the seeded non-admin `smoke` user:
+
+```sh
+just smoke            # ~25 s; exit 0 pass / 1 product failure / 2 setup error
+just smoke --keep     # leave the feed + upload in place for inspection
+just smoke --verbose  # stream every API call
+just smoke-setup      # prepare the virtualenv only (e.g. CI pre-bake)
+```
+
+The last stdout line is always a machine-readable JSON verdict. On failure
+the run writes diagnostics (API trace, journey state, `oc` dumps) under
+`okd/state/smoke-artifacts/<timestamp>/` and keeps the feed as evidence.
+TLS is verified against the ingress CA, extracted automatically
+(`just router-ca`) — never silently downgraded.
+
+The package is harness-agnostic: any machine that can reach the Route can
+run it with four env vars — see [smoke/README.md](smoke/README.md) for the
+standalone invocation and the full env/flag table, and
+[docs/ci.md](docs/ci.md) for CI wiring notes.
+
 ## Access modes
 
 - **`local`** (default) — you work on the harness box itself. DNS derives
@@ -117,6 +142,8 @@ means `just okd-nuke && just okd-install`. Details:
 - [docs/troubleshooting.md](docs/troubleshooting.md) — install stalls, certs, CSRs, libvirt
 - [docs/okd-vs-ocp.md](docs/okd-vs-ocp.md) — living gap log vs. supported Red Hat OpenShift
 - [docs/versions.md](docs/versions.md) — pinned + validated version record
+- [docs/ci.md](docs/ci.md) — CI wiring notes for the smoke test
+- [smoke/README.md](smoke/README.md) — smoke test usage, env/flag table, diagnostics
 
 ## Repository layout
 

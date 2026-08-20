@@ -12,6 +12,7 @@ config.local.env
 .venv/
 __pycache__/
 *.egg-info/
+.pytest_cache/
 
 # OS noise.
 .DS_Store

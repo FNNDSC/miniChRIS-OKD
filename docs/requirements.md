@@ -80,7 +80,7 @@ Fedora/RHEL-family equivalents of what `host-setup.sh` installs:
 
 ```sh
 sudo dnf install -y libvirt virt-install qemu-kvm qemu-img gettext \
-    bind-utils jq curl just haproxy   # haproxy: lan mode only
+    bind-utils python3 jq curl just haproxy   # haproxy: lan mode only
 sudo systemctl enable --now libvirtd  # or virtqemud.socket on modular setups
 sudo usermod -aG libvirt "$USER"      # then re-login
 # just/helm on RHEL proper: EPEL or the upstream installer scripts
@@ -100,6 +100,7 @@ Installed by `bash scripts/host-setup.sh` (apt-based distros; needs sudo):
 - `libvirt-daemon-system`, `libvirt-clients`, `virtinst`,
   `qemu-system-x86`, `qemu-utils` — the VM stack
 - `gettext-base` (envsubst), `jq`, `curl`
+- `python3-venv` — smoke test virtualenv (Phase 3)
 - `just` (apt or official installer), `helm` (Phase 2)
 - `haproxy` — **lan mode only**
 - Pinned `oc` / `kubectl` / `openshift-install` are fetched from the OKD

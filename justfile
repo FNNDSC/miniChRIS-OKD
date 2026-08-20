@@ -92,6 +92,16 @@ chris-teardown *args:
 chris-nuke *args:
     @scripts/chris-teardown.sh --nuke {{ args }}
 
+# Functional end-to-end smoke test: auth → upload → run plugins → verify output.
+[group('(3) test')]
+smoke *args:
+    @scripts/smoke.sh {{ args }}
+
+# Prepare the smoke test virtualenv without running the test (CI pre-bake).
+[group('(3) test')]
+smoke-setup:
+    @scripts/smoke.sh --setup-only
+
 # Render install-config/agent-config templates into okd/state/.
 [group('helper')]
 render:
@@ -101,6 +111,11 @@ render:
 [group('helper')]
 versions:
     @scripts/okd-info.sh versions
+
+# Extract the ingress router CA so clients can verify Route TLS (used by smoke).
+[group('helper')]
+router-ca:
+    @scripts/router-ca.sh
 
 # --- private steps of okd-install (callable individually when debugging) ----
 
