@@ -42,6 +42,21 @@ set. This matches the canonical SNO pattern (DNS pointing at the node).
 Other machines on your LAN cannot reach the cluster (they can't route to
 `192.168.126.x`).
 
+**Caveat — `local` mode puts a `192.168.x.x` address into public DNS.**
+Resolvers with DNS rebind protection strip private-IP answers, and
+`192.168.0.0/16` is filtered noticeably more often than `10.0.0.0/8` (it is
+the classic rebind target). So a resolver that happily returns
+`10-0-0-33.sslip.io → 10.0.0.33` for `lan` mode may refuse or drop
+`192-168-126-10.sslip.io`. The cluster still installs — the node reaches the
+API by IP — and then degrades, because `ingress` canaries
+`canary-openshift-ingress-canary.apps.<domain>` and `authentication`
+health-checks `oauth-openshift.apps.<domain>`; both are `*.apps` names that
+must resolve *from inside the cluster*. `host-check` and `net-setup` now
+assert the node's view of both `api.` and `*.apps` before installing, so this
+fails preflight rather than 40 minutes in. If you hit it: whitelist
+`sslip.io` on your resolver, use the dnsmasq fallback below, or switch to
+`ACCESS_MODE=lan`.
+
 **Escape hatch — reaching a `local`-mode cluster from another machine:**
 not a supported day-to-day path (that's what `lan` mode is for), but handy
 for spot checks. Tunnel through the harness host, which *can* route to the

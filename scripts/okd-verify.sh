@@ -210,19 +210,62 @@ check_route_edge() {
   dev_oc -n "${PROJECT}" create route edge verify-web --service=verify-web
   dev_oc -n "${PROJECT}" wait deployment/verify-web --for=condition=Available --timeout="${POD_TIMEOUT}"
 
-  local host code attempt
+  local host code attempt phase reached=false
   host="$(dev_oc -n "${PROJECT}" get route verify-web -o jsonpath='{.spec.host}')"
   echo "route host: ${host}"
+
+  # Leg 1 — from the host, i.e. how a developer reaches the Route.
+  echo "--- leg 1: from the host (outside the cluster) ---"
   # Router config propagation can lag the Route object briefly; -k because
   # the default router certificate is self-signed.
   for attempt in {1..12}; do
     code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://${host}/" || true)"
     echo "attempt ${attempt}: HTTP ${code}"
     # 200 (welcome page) or 403 (no index) both prove routing into the pod.
-    [[ "${code}" == 200 || "${code}" == 403 ]] && return 0
+    if [[ "${code}" == 200 || "${code}" == 403 ]]; then reached=true; break; fi
     sleep 10
   done
-  return 1
+  [[ "${reached}" == true ]] || { echo "host-side probe never succeeded"; return 1; }
+
+  # Leg 2 — from inside the cluster. Different DNS (CoreDNS -> the node's
+  # resolver) and a different network path, and it is the leg the ingress
+  # canary and the oauth route depend on. A cluster can pass leg 1 and still
+  # degrade on ingress/authentication (FNNDSC/HARBOR-planning#129).
+  echo "--- leg 2: from inside the cluster (ingress canary / oauth path) ---"
+  dev_oc -n "${PROJECT}" apply -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: verify-incluster
+spec:
+  restartPolicy: Never
+  containers:
+    - name: probe
+      image: ${UBI_IMAGE}
+      command:
+        - sh
+        - -c
+        - |
+          for i in \$(seq 1 12); do
+            code=\$(curl -sk -o /dev/null -w '%{http_code}' --max-time 15 "https://${host}/" || true)
+            echo "attempt \$i: HTTP \$code"
+            case "\$code" in 200|403) exit 0 ;; esac
+            sleep 10
+          done
+          echo "in-cluster probe never reached the route"
+          exit 1
+EOF
+  # Poll for a terminal phase rather than 'wait --for', so a genuine failure
+  # reports promptly instead of burning the full timeout.
+  phase=""
+  for attempt in {1..48}; do
+    phase="$(dev_oc -n "${PROJECT}" get pod verify-incluster -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+    [[ "${phase}" == Succeeded || "${phase}" == Failed ]] && break
+    sleep 5
+  done
+  dev_oc -n "${PROJECT}" logs verify-incluster 2>&1 || true
+  echo "in-cluster probe pod phase: ${phase:-<none>}"
+  [[ "${phase}" == Succeeded ]]
 }
 
 check_project_delete() {

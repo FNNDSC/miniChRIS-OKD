@@ -132,6 +132,29 @@ check_dns() {
 check_dns "api.${CLUSTER_DOMAIN}"
 check_dns "test.${APPS_DOMAIN}"
 
+# The two checks above are the *host's* view. The cluster lives by the *node's*
+# view, which resolves through the libvirt network's dnsmasq — a different path,
+# and the one that silently breaks when an upstream resolver strips private-IP
+# answers. A host that passes above can still build a cluster whose ingress and
+# authentication operators cannot resolve their own '*.apps' routes
+# (FNNDSC/HARBOR-planning#129). On a first run the network does not exist yet;
+# net-setup asserts the same thing right after it creates it.
+if command -v dig >/dev/null 2>&1 && command -v virsh >/dev/null 2>&1 \
+    && [[ "$(virsh_c net-info "${VM_NET_NAME}" 2>/dev/null | awk '/^Active:/ {print $2}')" == yes ]]; then
+  # dig exits 9 when the resolver does not reply — tolerate it and report below.
+  node_api="$(dig +short "api.${CLUSTER_DOMAIN}" "@${VM_GATEWAY}" 2>/dev/null | grep -Eo '^[0-9]+(\.[0-9]+){3}$' | tail -1 || true)"
+  node_apps="$(dig +short "test.${APPS_DOMAIN}" "@${VM_GATEWAY}" 2>/dev/null | grep -Eo '^[0-9]+(\.[0-9]+){3}$' | tail -1 || true)"
+  if [[ "${node_api}" == "${ACCESS_IP}" && "${node_apps}" == "${ACCESS_IP}" ]]; then
+    ok "DNS (node view via ${VM_GATEWAY}): api + *.apps → ${ACCESS_IP}"
+  else
+    bad "DNS (node view via ${VM_GATEWAY}): api → '${node_api:-<nothing>}', *.apps → '${node_apps:-<nothing>}', expected ${ACCESS_IP}"
+    bad "  a resolver that filters private-IP answers breaks sslip.io; 192.168.x.x is"
+    bad "  filtered more often than 10.x.x.x, so ACCESS_MODE=local hits it first (docs/networking.md)"
+  fi
+else
+  note "DNS (node view): libvirt network '${VM_NET_NAME}' not up yet — net-setup asserts it before installing"
+fi
+
 # --- lan mode: HAProxy ports must be free (or already ours) ------------------
 if [[ "${ACCESS_MODE}" == lan ]]; then
   haproxy_is_ours=false

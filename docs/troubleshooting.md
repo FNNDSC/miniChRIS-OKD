@@ -103,6 +103,27 @@ https://api.<cluster domain>:6443/healthz`. For long runs, start inside
     nudge with `systemctl restart assisted-service` on the node.
 - **`create image` fails downloading the boot image** — network/proxy
   problem; the image caches under `~/.cache/agent/` once fetched.
+- **`wait-for install-complete` fails with `Cluster operator authentication
+  is not available` + `Cluster operator ingress is degraded`** (hit
+  2026-08-20, `local` mode). These are the two operators that depend on the
+  `*.apps` wildcard resolving **from inside the cluster**: ingress checks
+  `canary-openshift-ingress-canary.apps.<domain>` and authentication
+  health-checks `oauth-openshift.apps.<domain>` through the same router. So it
+  is one fault, not two — authentication is collateral. Look for
+  `error sending canary HTTP Request: Timeout` in the operator message; in
+  Go's HTTP client that covers a hanging DNS lookup as well as a hanging
+  connect. Diagnose the node's view, which is not what `getent`/`host-check`
+  historically tested:
+
+  ```sh
+  dig +short test.apps.<cluster domain> @192.168.126.1   # node's resolver
+  getent hosts test.apps.<cluster domain>                # host's resolver
+  ```
+
+  Anything other than the access IP from the first command is the cause —
+  usually a rebind-protecting resolver (see
+  [networking.md](networking.md#access-modes)). `net-setup` now refuses to
+  install in that state instead of warning.
 
 ## DNS
 

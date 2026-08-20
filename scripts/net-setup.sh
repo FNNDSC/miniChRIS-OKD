@@ -44,14 +44,38 @@ fi
 
 # The node must see NXDOMAIN for the installer's wildcard probe while still
 # resolving the API name — assert both through the network's own dnsmasq.
-if command -v dig >/dev/null 2>&1; then
+# This is the node's view, not the host's — they differ when a resolver
+# filters private-IP answers (DNS rebind protection), and the node's view is
+# the one the cluster lives by. Both 'api.' and a '*.apps' name must resolve:
+# ingress canaries and the oauth route are '*.apps' names, and a cluster whose
+# nodes cannot resolve them installs and then degrades
+# (FNNDSC/HARBOR-planning#129).
+if ! command -v dig >/dev/null 2>&1; then
+  warn "dig not installed — cannot verify the node's DNS view before installing"
+  warn "  install it ('just host-setup') if the install later fails on ingress/authentication"
+else
   probe_rc=0
   dig +short "validatenowildcarddns.${CLUSTER_DOMAIN}" "@${VM_GATEWAY}" | grep -q . && probe_rc=1
-  api_ip="$(dig +short "api.${CLUSTER_DOMAIN}" "@${VM_GATEWAY}" | tail -1)"
-  if [[ "${probe_rc}" -eq 0 && "${api_ip}" == "${ACCESS_IP}" ]]; then
-    log "node DNS view OK: wildcard probe → NXDOMAIN, api → ${api_ip}"
+  # dig exits 9 when the resolver does not reply; tolerate it so the checks
+  # below can report the problem instead of set -e killing us first.
+  api_ip="$(dig +short "api.${CLUSTER_DOMAIN}" "@${VM_GATEWAY}" 2>/dev/null | grep -Eo '^[0-9]+(\.[0-9]+){3}$' | tail -1 || true)"
+  apps_ip="$(dig +short "test.${APPS_DOMAIN}" "@${VM_GATEWAY}" 2>/dev/null | grep -Eo '^[0-9]+(\.[0-9]+){3}$' | tail -1 || true)"
+
+  dns_bad=()
+  [[ "${probe_rc}" -eq 0 ]] || dns_bad+=("wildcard probe resolves (expected NXDOMAIN)")
+  [[ "${api_ip}" == "${ACCESS_IP}" ]] || dns_bad+=("api.${CLUSTER_DOMAIN} → '${api_ip:-<nothing>}' (expected ${ACCESS_IP})")
+  [[ "${apps_ip}" == "${ACCESS_IP}" ]] || dns_bad+=("test.${APPS_DOMAIN} → '${apps_ip:-<nothing>}' (expected ${ACCESS_IP})")
+
+  if [[ ${#dns_bad[@]} -eq 0 ]]; then
+    log "node DNS view OK: wildcard probe → NXDOMAIN, api + *.apps → ${ACCESS_IP}"
   else
-    warn "node DNS view unexpected (probe blocked: $((1 - probe_rc)), api → '${api_ip}'); install validations may fail"
+    for _problem in "${dns_bad[@]}"; do warn "node DNS: ${_problem}"; done
+    warn "the node resolves through ${VM_GATEWAY}, which forwards to this host's upstream resolver."
+    warn "a resolver that strips private-IP answers (DNS rebind protection) breaks sslip.io;"
+    warn "192.168.x.x is filtered far more often than 10.x.x.x, so 'local' mode hits this first."
+    warn "fixes: whitelist sslip.io on your resolver/router, use the dnsmasq fallback in"
+    warn "docs/networking.md, or switch to ACCESS_MODE=lan so *.apps resolves to your LAN address."
+    die "node DNS view is wrong — installing now would produce a cluster that degrades on ingress/authentication"
   fi
 fi
 
