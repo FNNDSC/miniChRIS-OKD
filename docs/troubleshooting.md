@@ -41,6 +41,32 @@ https://api.<cluster domain>:6443/healthz`. For long runs, start inside
   up? `systemctl status haproxy`).
 - **ISO boots but nothing happens for a long time** — first boot writes
   SCOS to disk and reboots; 10–15 quiet minutes are normal. Watch via VNC.
+- **`wait-for bootstrap-complete` dies after ~60 min with "bootstrap process
+  timed out: context deadline exceeded" while the VM stayed up the whole
+  time** (hit 2026-08-19). The install never actually started: assisted-service
+  could not generate the install config, so the cluster looped `known →
+  preparing-for-installation → preparing-successful → known` until the
+  installer's deadline expired. The cause we hit was a **truncated
+  `openshift-install` in assisted-service's installer cache inside the VM** —
+  42,310,880 bytes of the real 695,627,960 — which segfaults instantly
+  (`rc=139`, no output) on every attempt. That cache sits on the node's
+  RAM-backed ephemeral overlay and is not size-checked on reuse, so a single
+  short extraction poisons the whole boot. It is transient: the same release
+  digest installs normally on a fresh VM.
+
+  `okd-wait` now watches for this and aborts within a few minutes, printing the
+  guest-side error instead of waiting out the deadline (tunable via
+  `PREPARE_FAIL_LIMIT`, default 3). To confirm by hand:
+
+  ```sh
+  ssh -i okd/state/ssh/id_ed25519 core@<VM_IP> \
+    'sudo journalctl -u assisted-service | grep -a "Failed to prepare installation" | tail -3'
+  # → error running openshift-install manifests,  : signal: segmentation fault
+  ```
+
+  **Fix:** `just okd-teardown && just okd-install` — a fresh VM gets a fresh
+  cache. Do not just re-run `just okd-wait`: the poisoned cache lives on the
+  running node and survives until the VM is recreated.
 - **Cluster registration loops: "release image … does not support requested
   CPU architecture multi"** (hit on 4.22.0-okd-scos.6, 2026-07-15). OKD's
   release digest is a multi-arch manifest list (amd64+arm64) while the
