@@ -10,19 +10,26 @@
 # so the same test runs from any shell that can reach the Route (see
 # smoke/README.md). Extra args go straight through (e.g. --keep, --verbose).
 
-set -euo pipefail
+set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "${SCRIPT_DIR}/lib/common.sh"
 
-# Everything before the final exec is bootstrap: a failure here means the
-# invocation or harness state is wrong, never that ChRIS is broken — so it
-# must exit 2, matching the Python CLI's contract (0 pass / 1 product
-# failure / 2 configuration) that docs/ci.md tells CI to rely on. Override
-# lib/common.sh's die() (which exits 1) and route unexpected command
-# failures the same way; the exec'd Python process is unaffected.
-die() { printf '%s[%s] error:%s %s\n' "${_C_ERR}" "${SCRIPT_NAME}" "${_C_OFF}" "$*" >&2; exit 2; }
+# Everything before the final exec is bootstrap: a failure anywhere here —
+# config validation while sourcing the libs included — means the invocation
+# or harness state is wrong, never that ChRIS is broken. It must exit 2,
+# matching the Python CLI's contract (0 pass / 1 product failure / 2
+# configuration) that docs/ci.md tells CI to rely on: DIE_STATUS routes
+# die() to 2, the ERR trap (inherited by functions via -E) catches
+# unexpected command failures, and the EXIT trap keeps the "last stdout
+# line is a JSON verdict" promise even when the Python process never
+# starts. The exec'd Python process replaces all of this.
+_bootstrap_verdict() {
+  [[ $1 -eq 0 ]] || printf '{"verdict": "fail", "exit_code": %d, "failed_step": "bootstrap", "duration_s": 0.0, "steps": [], "artifacts": null}\n' "$1"
+}
+DIE_STATUS=2
 trap 'exit 2' ERR
+trap '_bootstrap_verdict "$?"' EXIT
 
+source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/chris.sh"
 
 SETUP_ONLY=no
@@ -70,8 +77,17 @@ fi
 export CHRIS_SMOKE_USER="${CHRIS_SMOKE_USER:-${CHRIS_TEST_USER}}"
 
 # --- TLS: router CA by default; skipping verification must be an explicit
-# operator choice (SMOKE_INSECURE=1), never a silent downgrade ----------------
-if [[ -z "${SMOKE_CA_BUNDLE:-}" && "${SMOKE_INSECURE:-}" != 1 ]]; then
+# operator choice (SMOKE_INSECURE), never a silent downgrade ------------------
+
+# Same truthy forms as the Python CLI (chris_smoke/config.py): 1/true/yes.
+insecure_requested() {
+  case "$(printf '%s' "${SMOKE_INSECURE:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [[ -z "${SMOKE_CA_BUNDLE:-}" ]] && ! insecure_requested; then
   ROUTER_CA_FILE="${AUTH_DIR}/router-ca.crt"
   if [[ ! -f "${ROUTER_CA_FILE}" ]]; then
     "${SCRIPT_DIR}/router-ca.sh" >/dev/null || true

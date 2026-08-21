@@ -43,6 +43,29 @@ def test_password_file(monkeypatch, tmp_path):
     assert load_config([]).password == "s3cret"
 
 
+def test_password_flag_beats_env_and_file(monkeypatch, tmp_path):
+    secret = tmp_path / "pw"
+    secret.write_text("from-file")
+    set_env(monkeypatch, {"CHRIS_SMOKE_PASSWORD_FILE": str(secret)})
+    assert load_config(["--password", "from-flag"]).password == "from-flag"
+
+
+def test_missing_password_file_is_config_error(monkeypatch, tmp_path):
+    set_env(monkeypatch, {"CHRIS_SMOKE_PASSWORD": "",
+                          "CHRIS_SMOKE_PASSWORD_FILE": str(tmp_path / "absent")})
+    with pytest.raises(ConfigError, match="does not exist"):
+        load_config([])
+
+
+def test_blank_password_file_is_config_error(monkeypatch, tmp_path):
+    secret = tmp_path / "pw"
+    secret.write_text("   \n")
+    set_env(monkeypatch, {"CHRIS_SMOKE_PASSWORD": "",
+                          "CHRIS_SMOKE_PASSWORD_FILE": str(secret)})
+    with pytest.raises(ConfigError, match="no password"):
+        load_config([])
+
+
 def test_missing_url_is_config_error(monkeypatch):
     set_env(monkeypatch, {"CUBE_URL": ""})
     with pytest.raises(ConfigError, match="CUBE URL"):
@@ -62,6 +85,30 @@ def test_insecure_and_ca_bundle(monkeypatch, tmp_path):
 
     monkeypatch.setenv("SMOKE_INSECURE", "1")
     assert load_config([]).verify is False
+
+
+def test_ca_bundle_env_beats_insecure_env(monkeypatch, tmp_path):
+    # both set: verification with the bundle wins over the insecure opt-out
+    bundle = tmp_path / "ca.crt"
+    bundle.write_text("cert")
+    set_env(monkeypatch, {"SMOKE_CA_BUNDLE": str(bundle), "SMOKE_INSECURE": "1"})
+    assert load_config([]).verify == str(bundle)
+
+
+def test_ca_bundle_and_insecure_flags_conflict(monkeypatch, tmp_path):
+    bundle = tmp_path / "ca.crt"
+    bundle.write_text("cert")
+    set_env(monkeypatch)
+    with pytest.raises(ConfigError, match="not allowed with"):
+        load_config(["--ca-bundle", str(bundle), "--insecure"])
+
+
+def test_insecure_env_value_forms(monkeypatch):
+    # same truthy forms the smoke.sh wrapper accepts: 1/true/yes, any case
+    for value, verify in (("true", False), ("YES", False), ("1", False),
+                          ("0", True), ("no", True), ("", True)):
+        set_env(monkeypatch, {"SMOKE_INSECURE": value})
+        assert load_config([]).verify is verify, f"SMOKE_INSECURE={value!r}"
 
 
 def test_non_numeric_timeout_is_config_error(monkeypatch):

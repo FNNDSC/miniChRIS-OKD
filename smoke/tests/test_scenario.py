@@ -33,6 +33,36 @@ def test_upload_path_is_under_user_home(cfg):
     assert state.upload_path.endswith("/" + state.payload.name)
 
 
+def test_run_stamps_are_unique():
+    # two runs in the same second must never share an upload path
+    a, b = scenario.new_state("smoke"), scenario.new_state("smoke")
+    assert a.upload_dir != b.upload_dir
+
+
+def test_server_error_on_probe_fails_preflight(fake_cube, cfg, reporter,
+                                               monkeypatch):
+    monkeypatch.setattr(fake_cube, "probe", lambda: 503)
+    state = scenario.new_state(cfg.username)
+
+    ok, results = run(scenario.PREFLIGHT, fake_cube, cfg, state, reporter)
+    assert not ok
+    assert results[-1].name == "CUBE route reachable"
+    assert "HTTP 503" in results[-1].detail
+
+
+def test_upload_size_mismatch_fails_upload_step(fake_cube, cfg, reporter,
+                                                monkeypatch):
+    monkeypatch.setattr(fake_cube, "upload",
+                        lambda path, content: {"id": 100, "fsize": 0})
+    state = scenario.new_state(cfg.username)
+
+    run(scenario.PREFLIGHT, fake_cube, cfg, state, reporter)
+    ok, results = run(scenario.JOURNEY, fake_cube, cfg, state, reporter)
+    assert not ok
+    assert results[-1].name == "upload test file"
+    assert "fsize" in results[-1].detail
+
+
 def test_missing_plugin_fails_preflight(fake_cube, cfg, reporter):
     del fake_cube.plugins[scenario.DS_PLUGIN]
     state = scenario.new_state(cfg.username)

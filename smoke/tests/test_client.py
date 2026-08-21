@@ -97,6 +97,17 @@ def test_tls_pin_is_idempotent_updatable_and_keyword_safe():
     assert settings["verify"] == "/some/ca.crt"
 
 
+def test_default_verify_true_is_not_pinned(monkeypatch):
+    # verify=True must leave requests' own resolution (REQUESTS_CA_BUNDLE
+    # included) in effect rather than overriding it process-wide
+    monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    monkeypatch.delenv("CURL_CA_BUNDLE", raising=False)
+    client_module._pin_process_tls(True)
+    settings = requests.Session().merge_environment_settings(
+        url="https://x", proxies={}, stream=False, verify=True, cert=None)
+    assert settings["verify"] is True
+
+
 def test_fake_cube_conforms_to_real_adapter_surface(fake_cube):
     """Bind the seam's two sides: every public CubeClient method must exist on
     FakeCube with identical parameter names, so scenario tests exercise the

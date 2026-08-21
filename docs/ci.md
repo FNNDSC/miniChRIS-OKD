@@ -76,8 +76,10 @@ just smoke | tail -1 | jq .failed_step
 
 Exit code `2` (setup problem: bad credentials, missing plugins, unreachable
 Route — and, from `just smoke`, wrapper bootstrap failures like a missing
-seeded password or unavailable router CA) should be treated as an
-*infrastructure* alert, not a product regression — the journey never ran.
+seeded password, unavailable router CA, or invalid harness configuration)
+should be treated as an *infrastructure* alert, not a product regression —
+the journey never ran. Wrapper failures carry `"failed_step": "bootstrap"`
+in the verdict, so the `tail -1 | jq` recipe above works for them too.
 
 ## Open items (deliberately deferred)
 

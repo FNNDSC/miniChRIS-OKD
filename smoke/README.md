@@ -22,11 +22,14 @@ pfcon/pman or the chart internals, so it survives a compute-backend swap.
 | `1` | a journey step failed — ChRIS is deployed but functionally broken |
 | `2` | configuration/preflight error — the invocation or deployment setup is wrong; the product was never exercised |
 
-`just smoke` honors the same contract: bootstrap failures in the wrapper
-(missing python3, no seeded password, router CA unavailable) also exit `2`.
+`just smoke` honors the same contract: any bootstrap failure in the wrapper
+(missing python3, no seeded password, router CA unavailable, invalid harness
+configuration) exits `2` and emits the same JSON verdict with
+`"failed_step": "bootstrap"`.
 
 The last stdout line is always a single-line JSON verdict
-(`{"verdict": "pass", "exit_code": 0, "failed_step": null, "steps": [...], ...}`).
+(`{"verdict": "pass", "exit_code": 0, "failed_step": null, "steps": [...], ...}`)
+— from the wrapper as well as the Python CLI.
 
 ## Running from the harness
 
@@ -66,7 +69,7 @@ Get the two credential files from the harness host:
 | `CHRIS_SMOKE_PASSWORD` | `--password` | — (required) | test-user password |
 | `CHRIS_SMOKE_PASSWORD_FILE` | — | — | file alternative to the above |
 | `SMOKE_CA_BUNDLE` | `--ca-bundle` | system CAs | CA file verifying the Route cert |
-| `SMOKE_INSECURE=1` | `--insecure` | off | skip TLS verification (dev fallback) |
+| `SMOKE_INSECURE` | `--insecure` | off | skip TLS verification (`1`/`true`/`yes`; dev fallback) |
 | `SMOKE_TIMEOUT` | `--timeout` | `600` | plugin-run completion budget (s) |
 | `SMOKE_POLL_INTERVAL` | `--poll-interval` | `5` | status poll cadence (s) |
 | `SMOKE_REQUEST_TIMEOUT` | — | `30` | per-HTTP-request timeout (s) |
@@ -78,7 +81,7 @@ Get the two credential files from the harness host:
 
 ## Failure diagnostics
 
-On any failure the test writes `<artifacts>/<UTC timestamp>/`:
+On any failure the test writes `<artifacts>/<UTC timestamp>-<nonce>/`:
 
 ```text
 trace.jsonl       every API call: timing, target, error

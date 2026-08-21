@@ -2,7 +2,8 @@
 Failure diagnostics: persist enough to distinguish routing, auth, storage, and
 execution problems without re-running the test.
 
-Written under ``<artifacts_dir>/<UTC timestamp>/``:
+Written under ``<artifacts_dir>/<UTC timestamp>-<nonce>/`` (the nonce keeps
+concurrent runs apart):
 
 * ``trace.jsonl``     — every adapter API call (timing, target, error)
 * ``state.json``      — ids, paths, statuses, checksums the journey accumulated
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import secrets
 import shutil
 import subprocess
 import time
@@ -42,7 +44,8 @@ _OC_SNAPSHOTS = {
 def collect(cfg: SmokeConfig, client: CubeClient, state: RunState,
             failed_step: str | None) -> Path | None:
     try:
-        out_dir = cfg.artifacts_dir / time.strftime("%Y%m%d-%H%M%SZ", time.gmtime())
+        stamp = time.strftime("%Y%m%d-%H%M%SZ", time.gmtime())
+        out_dir = cfg.artifacts_dir / f"{stamp}-{secrets.token_hex(3)}"
         out_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         return None
@@ -61,7 +64,10 @@ def collect(cfg: SmokeConfig, client: CubeClient, state: RunState,
     errors.extend(_collect_oc(cfg, out_dir))
 
     if errors:
-        (out_dir / "collection-errors.txt").write_text("\n".join(errors) + "\n")
+        try:
+            (out_dir / "collection-errors.txt").write_text("\n".join(errors) + "\n")
+        except OSError:
+            pass  # nowhere left to record them; the verdict must survive
     return out_dir
 
 
@@ -101,7 +107,10 @@ def _collect_oc(cfg: SmokeConfig, out_dir: Path) -> list[str]:
         return []
 
     oc_dir = out_dir / "oc"
-    oc_dir.mkdir(exist_ok=True)
+    try:
+        oc_dir.mkdir(exist_ok=True)
+    except OSError as exc:
+        return [f"oc/: {exc}"]
     errors = []
 
     for name, args in _OC_SNAPSHOTS.items():
@@ -137,5 +146,8 @@ def _oc_capture(cfg: SmokeConfig, args: list[str]) -> tuple[str, str | None]:
 def _oc_to_file(cfg: SmokeConfig, args: list[str], path: Path) -> str | None:
     output, error = _oc_capture(cfg, args)
     if output:
-        path.write_text(output)
+        try:
+            path.write_text(output)
+        except OSError as exc:
+            return str(exc)
     return error

@@ -36,7 +36,10 @@ else
 fi
 log()  { printf '%s[%s]%s %s\n' "${_C_INFO}" "${SCRIPT_NAME}" "${_C_OFF}" "$*" >&2; }
 warn() { printf '%s[%s] warning:%s %s\n' "${_C_WARN}" "${SCRIPT_NAME}" "${_C_OFF}" "$*" >&2; }
-die()  { printf '%s[%s] error:%s %s\n' "${_C_ERR}" "${SCRIPT_NAME}" "${_C_OFF}" "$*" >&2; exit 1; }
+# die MSG... — print and exit. Scripts with a different exit-code contract may
+# pre-set DIE_STATUS before sourcing this lib (smoke.sh: every bootstrap
+# failure, config validation below included, must exit 2).
+die()  { printf '%s[%s] error:%s %s\n' "${_C_ERR}" "${SCRIPT_NAME}" "${_C_OFF}" "$*" >&2; exit "${DIE_STATUS:-1}"; }
 
 # require_cmd CMD... — die with a hint if any command is missing.
 require_cmd() {
@@ -57,13 +60,32 @@ confirm() {
 
 # --- configuration -----------------------------------------------------------
 # Precedence: environment > config.local.env > config.env defaults.
-# (config.env guards every value with ${VAR:-default}; config.local.env is
-# sourced first so its plain assignments act as pre-set environment.)
+# config.local.env holds plain assignments (like config.env, minus the
+# ${VAR:-default} guards), so sourcing it would clobber values passed via the
+# environment — save any variable the file assigns that the caller already
+# set, and restore those after sourcing. config.env then fills the remaining
+# gaps, since every value there is ${VAR:-default}-guarded.
+_load_config() {
+  local local_env="${REPO_ROOT}/config.local.env" var i
+  local preset_vars=() preset_vals=()
+  if [[ -f "${local_env}" ]]; then
+    while IFS= read -r var; do
+      if [[ -n "${!var+x}" ]]; then
+        preset_vars+=("${var}")
+        preset_vals+=("${!var}")
+      fi
+    done < <(sed -nE 's/^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "${local_env}")
+    # shellcheck source=/dev/null
+    source "${local_env}"
+    for i in "${!preset_vars[@]}"; do
+      printf -v "${preset_vars[$i]}" '%s' "${preset_vals[$i]}"
+    done
+  fi
+  # shellcheck source=/dev/null
+  source "${REPO_ROOT}/config.env"
+}
 set -a
-# shellcheck source=/dev/null
-[[ -f "${REPO_ROOT}/config.local.env" ]] && source "${REPO_ROOT}/config.local.env"
-# shellcheck source=/dev/null
-source "${REPO_ROOT}/config.env"
+_load_config
 set +a
 
 _detect_host_ip() {

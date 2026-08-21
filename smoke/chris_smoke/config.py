@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -126,7 +127,7 @@ def load_config(argv: list[str] | None = None) -> SmokeConfig:
     )
 
 
-def _resolve_verify(args: argparse.Namespace, env: os._Environ) -> bool | str:
+def _resolve_verify(args: argparse.Namespace, env: Mapping[str, str]) -> bool | str:
     if args.insecure:
         return False
     ca_bundle = args.ca_bundle or env.get("SMOKE_CA_BUNDLE")

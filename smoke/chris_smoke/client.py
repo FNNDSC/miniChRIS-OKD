@@ -19,6 +19,8 @@ TLS: the library calls module-level ``requests`` functions with no ``verify``
 passthrough, so the effective verify value (CA bundle path or False) is pinned
 process-wide via ``requests.Session.merge_environment_settings`` — acceptable
 in this single-purpose CLI process, and it keeps every request consistent.
+The default ``verify=True`` is never pinned: ``requests``' own resolution
+(``REQUESTS_CA_BUNDLE`` included) stays in effect.
 
 Every adapter call is timed and appended to :attr:`CubeClient.events`, the
 HTTP trace that failure diagnostics persist.
@@ -62,7 +64,9 @@ def _pin_process_tls(verify: bool | str) -> None:
         # (verify=..., cert=...) would TypeError against renamed parameters.
         def merged(self, url, proxies, stream, verify, cert):  # noqa: ANN001
             settings = original(self, url, proxies, stream, verify, cert)
-            if _TLS_VERIFY is not None:
+            # True is not pinned: default verification keeps requests' own
+            # resolution (REQUESTS_CA_BUNDLE included) intact.
+            if _TLS_VERIFY is not None and _TLS_VERIFY is not True:
                 settings["verify"] = _TLS_VERIFY
             return settings
 

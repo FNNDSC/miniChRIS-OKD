@@ -17,6 +17,7 @@ failed run's feed and files are evidence, deliberately left in place.
 
 from __future__ import annotations
 
+import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
@@ -74,7 +75,10 @@ class RunState:
 
 
 def new_state(username: str) -> RunState:
-    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    # Second-granularity time plus a nonce: two runs in the same second
+    # (e.g. concurrent CI jobs against one deployment) must never share an
+    # upload path.
+    stamp = f'{time.strftime("%Y%m%d-%H%M%S", time.gmtime())}-{secrets.token_hex(3)}'
     payload = make_payload(stamp)
     upload_dir = f"home/{username}/uploads/smoke-{stamp}"
     return RunState(payload=payload, upload_dir=upload_dir,

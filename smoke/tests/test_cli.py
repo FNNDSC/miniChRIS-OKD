@@ -77,6 +77,20 @@ def test_bad_flag_value_exits_2_with_verdict(capsys):
     assert last_json_line(capsys)["failed_step"] == "configuration"
 
 
+def test_internal_error_still_exits_1_with_verdict(monkeypatch, capsys):
+    # whatever explodes outside a step (here: the client constructor), the
+    # process must still end with a verdict line and the contract exit code
+    def explode(*args, **kwargs):
+        raise RuntimeError("client constructor blew up")
+
+    monkeypatch.setattr(cli, "CubeClient", explode)
+    assert cli.main(["--url", "https://cube.example/api/v1/", "--user", "smoke",
+                     "--password", "pw", "--insecure"]) == 1
+    verdict = last_json_line(capsys)
+    assert verdict["exit_code"] == 1
+    assert verdict["failed_step"] == "internal error"
+
+
 def test_keep_skips_cleanup(monkeypatch, fake_cube, tmp_path, capsys):
     assert run_main(monkeypatch, fake_cube, tmp_path, ["--keep"]) == 0
     assert fake_cube.deleted_feeds == []
