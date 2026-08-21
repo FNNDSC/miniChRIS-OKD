@@ -2,26 +2,19 @@
 # chris-status.sh — read-only picture of the ChRIS deployment.
 #
 #   (default) : release, pods, storage, route, seed job, URLs + credentials
-#   url       : just the CUBE URL (for scripting)
 #   open      : print the CUBE URL and open it when a GUI opener exists
 
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/lib/chris.sh"
 
-case "${1:-}" in
-  url)
-    echo "${CUBE_URL}"
-    exit 0
-    ;;
-  open)
-    echo "${CUBE_URL}"
-    for opener in open xdg-open; do  # macOS, Linux
-      command -v "${opener}" >/dev/null 2>&1 && exec "${opener}" "${CUBE_URL}"
-    done
-    exit 0
-    ;;
-esac
+if [[ "${1:-}" == open ]]; then
+  echo "${CUBE_URL}"
+  for opener in open xdg-open; do  # macOS, Linux
+    command -v "${opener}" >/dev/null 2>&1 && exec "${opener}" "${CUBE_URL}"
+  done
+  exit 0
+fi
 
 require_cmd oc helm
 require_cluster

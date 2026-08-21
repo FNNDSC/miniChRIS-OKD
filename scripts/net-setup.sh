@@ -18,12 +18,24 @@ require_cmd virsh envsubst
 # --- libvirt NAT network ------------------------------------------------------
 render_template "${REPO_ROOT}/okd/libvirt-net.xml.tpl" "${RENDER_DIR}/libvirt-net.xml"
 
+# net_is_current — the live definition carries every config-derived bit of the
+# template: the wildcard-DNS carve-out for this cluster domain, the static
+# DHCP reservation, and the gateway address. Any of them drifting (changed
+# CLUSTER_DOMAIN, VM_MAC/VM_IP, or VM_NET_CIDR) means redefining.
+net_is_current() {
+  local xml
+  xml="$(virsh_c net-dumpxml "${VM_NET_NAME}")"
+  grep -q "validatenowildcarddns.${CLUSTER_DOMAIN}" <<<"${xml}" \
+    && grep -q "mac='${VM_MAC}'" <<<"${xml}" \
+    && grep -q "ip='${VM_IP}'" <<<"${xml}" \
+    && grep -q "address='${VM_GATEWAY}'" <<<"${xml}"
+}
+
 if virsh_c net-info "${VM_NET_NAME}" >/dev/null 2>&1; then
-  # Redefine when the definition drifted from the template (e.g. the
-  # wildcard-DNS carve-out below, or a changed cluster domain). dnsmasq
+  # Redefine when the definition drifted from the template. dnsmasq
   # options only apply at network start, so this needs a bounce — refuse
   # while the VM is up rather than yank its bridge.
-  if virsh_c net-dumpxml "${VM_NET_NAME}" | grep -q "validatenowildcarddns.${CLUSTER_DOMAIN}"; then
+  if net_is_current; then
     log "libvirt network '${VM_NET_NAME}' already defined and current"
   else
     vm_exists && die "network '${VM_NET_NAME}' needs redefining but VM '${VM_NAME}' exists — 'just okd-teardown' first"

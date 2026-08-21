@@ -13,7 +13,8 @@
 #
 # PVs land on the node at /opt/local-path-provisioner (persistent: on
 # SCOS/ostree /opt resolves into /var). RWO only — sufficient on a single
-# node; the chart's documented RWO workaround applies (see plan §5.3).
+# node; the chart's documented RWO workaround applies
+# (enablePodAffinityWorkaround + node pin, see chris/values-okd.yaml).
 apiVersion: v1
 kind: Namespace
 metadata:

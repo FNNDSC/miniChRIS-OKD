@@ -90,7 +90,9 @@ floor_check "VM RAM"   "${VM_RAM_MIB}" "${VM_RAM_MIB_MIN}" "${VM_RAM_MIB_HARD}" 
 floor_check "VM disk"  "${VM_DISK_GB}" "${VM_DISK_GB_MIN}" "${VM_DISK_GB_HARD}" " GB"
 
 # --- tooling ----------------------------------------------------------------
-for cmd in virsh virt-install qemu-img envsubst jq curl ss getent openssl; do
+# dig is load-bearing: it is how net-setup (and the node-view check below)
+# assert the node's DNS view before any install starts.
+for cmd in virsh virt-install qemu-img envsubst jq curl ss getent openssl dig; do
   if command -v "${cmd}" >/dev/null 2>&1; then
     ok "tool: ${cmd}"
   else

@@ -38,4 +38,5 @@ log "creating agent ISO (downloads the SCOS boot image on first run — be patie
 openshift-install agent create image --dir "${INSTALL_DIR}" --log-level=info
 
 [[ -f "${ISO}" ]] || die "openshift-install finished but ${ISO} is missing"
+harden_install_auth  # create image also wrote auth/{kubeconfig,kubeadmin-password}
 log "agent ISO ready: ${ISO}"

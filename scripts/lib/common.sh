@@ -146,12 +146,24 @@ require_cluster() {
     || die "no admin kubeconfig at ${ADMIN_KUBECONFIG} — is the cluster installed? (just okd-install)"
 }
 
+# harden_install_auth — keep the installer-written credentials (auth/
+# kubeconfig, kubeadmin-password) private to the invoking user; helm warns
+# on group-readable kubeconfigs. openshift-install writes them at ISO
+# creation and again at install-complete, so both steps call this.
+harden_install_auth() {
+  [[ -d "${INSTALL_DIR}/auth" ]] || return 0
+  chmod 700 "${INSTALL_DIR}/auth"
+  chmod 600 "${INSTALL_DIR}/auth/"*
+}
+
 # render_template SRC DST — envsubst SRC into DST, substituting exactly the
 # ${VARS} the template references and dying if any of them is unset/empty.
 render_template() {
   local src="$1" dst="$2" var vars subst missing=()
   [[ -f "${src}" ]] || die "template not found: ${src}"
-  vars="$(grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' "${src}" | tr -d '${}' | sort -u)"
+  # '|| true': under pipefail a variable-free template would otherwise kill
+  # the script here instead of reaching the plain-copy branch below.
+  vars="$(grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' "${src}" | tr -d '${}' | sort -u || true)"
   if [[ -z "${vars}" ]]; then
     cp "${src}" "${dst}"
     return

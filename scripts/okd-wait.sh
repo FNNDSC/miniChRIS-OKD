@@ -96,6 +96,7 @@ if ! openshift-install --dir "${INSTALL_DIR}" agent wait-for install-complete --
   dump_node_diagnostics
   die "install-complete failed — see the diagnostics above and ${INSTALL_DIR}/.openshift_install.log"
 fi
+harden_install_auth  # wait-for install-complete refreshes auth/kubeconfig
 
 log "cluster installed"
 log "  console:            ${CONSOLE_URL}"

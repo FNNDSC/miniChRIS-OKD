@@ -18,23 +18,25 @@ defaults
     timeout client  5m
     timeout server  5m
 
+# Backends carry a -be suffix: HAProxy 3.3 drops support for a backend
+# sharing its frontend's name (3.2 warns about it at config check).
 frontend okd-api
     bind *:6443
-    default_backend okd-api
+    default_backend okd-api-be
 
-backend okd-api
+backend okd-api-be
     server sno ${VM_IP}:6443 check
 
 frontend okd-https
     bind *:443
-    default_backend okd-https
+    default_backend okd-https-be
 
-backend okd-https
+backend okd-https-be
     server sno ${VM_IP}:443 check
 
 frontend okd-http
     bind *:80
-    default_backend okd-http
+    default_backend okd-http-be
 
-backend okd-http
+backend okd-http-be
     server sno ${VM_IP}:80 check

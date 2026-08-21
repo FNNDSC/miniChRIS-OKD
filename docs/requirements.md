@@ -99,7 +99,8 @@ Installed by `bash scripts/host-setup.sh` (apt-based distros; needs sudo):
 
 - `libvirt-daemon-system`, `libvirt-clients`, `virtinst`,
   `qemu-system-x86`, `qemu-utils` — the VM stack
-- `gettext-base` (envsubst), `jq`, `curl`
+- `gettext-base` (envsubst), `bind9-dnsutils` (dig — node-view DNS
+  assertions), `jq`, `curl`
 - `python3-venv` — smoke test virtualenv (Phase 3)
 - `just` (apt or official installer), `helm` (Phase 2)
 - `haproxy` — **lan mode only**

@@ -83,9 +83,9 @@ in the verdict, so the `tail -1 | jq` recipe above works for them too.
 
 ## Open items (deliberately deferred)
 
-- Which repo hosts the workflow, and runner provisioning on the harness box
-  (plan §15). Unit tests (`pytest smoke/tests`, no network needed) could run
-  on hosted runners immediately.
+- Which repo hosts the workflow, and runner provisioning on the harness box.
+  Unit tests (`pytest smoke/tests`, no network needed) could run on hosted
+  runners immediately.
 - A `workflow_dispatch` input for `--keep` when debugging via CI.
 - Against supported Red Hat OpenShift: same test, corporate DNS/PKI replaces
   sslip.io + `router-ca.crt` (see [okd-vs-ocp.md](okd-vs-ocp.md)).
