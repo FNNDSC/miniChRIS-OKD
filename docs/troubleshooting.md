@@ -138,17 +138,77 @@ https://api.<cluster domain>:6443/healthz`. For long runs, start inside
 
 ## Certificates and long-lived clusters
 
-- **24-hour certificate rotation:** a fresh cluster rotates its bootstrap
-  certificates ~24 h after install. Keep the VM running through the first
-  day if you can; if it was down across the window, boot it and wait —
-  recovery is automatic but can take 15+ minutes.
-- **Pending CSRs after a long shutdown** (`x509: certificate has expired`
-  from kubelet, node `NotReady`):
+This is the harness's most deceptive failure mode, because a cluster in it
+*looks* perfectly healthy: `oc get nodes` reports `Ready`, `oc get pods`
+reports `Running`, and every cluster operator reports `Available`. All of it
+is stale data being replayed out of etcd.
+
+- **The 24-hour bootstrap certificate.** The kubelet client certificate
+  written at install (`/var/lib/kubelet/pki/kubelet-client-current.pem`,
+  issued by `kubelet-signer`) is valid for **24 hours**. It is rotated via CSR
+  by `cluster-machine-approver` — which can only happen while the cluster is
+  actually *running*. Keep the VM up through the first day after
+  `just okd-install`.
+
+- **If the node was down when it expired, the cluster does not recover by
+  itself.** kubelet falls back to `system:anonymous`, so it can start only the
+  five static control-plane pods (etcd, kube-apiserver,
+  kube-controller-manager, kube-scheduler, kube-rbac-proxy-crio). Everything
+  else — including `cluster-machine-approver`, the very thing that would
+  approve kubelet's CSRs — never starts. It is a genuine deadlock: kubelet
+  keeps submitting CSRs forever and nothing ever approves them. Meanwhile
+  kube-apiserver serves the last state etcd recorded, which is why every read
+  looks fine.
+
+- **Fix:**
 
   ```sh
-  eval "$(just okd-kubeconfig)"
-  oc get csr -o name | xargs -r oc adm certificate approve
+  just okd-doctor          # diagnose, then approve the pending kubelet CSRs
+  just okd-doctor --check  # diagnose only, change nothing
   ```
+
+  A second CSR round (`kubelet-serving`) follows the first; `okd-doctor` keeps
+  approving until the node leases go fresh. Observed 2026-08-26: ~10 minutes
+  from approval to 34/34 healthy cluster operators, with ChRIS pods returning
+  on their own.
+
+- **Recognising it by hand** — `okd-doctor` checks the first two itself (plus
+  `/readyz`); the `crictl` inventory is yours to run:
+
+  ```sh
+  eval "$(just okd-env)"          # okd-env, NOT okd-kubeconfig: only okd-env
+                                  # puts the pinned oc on PATH
+  oc get lease -n kube-node-lease                 # kubelet renews every ~10s
+  oc get csr | grep -c Pending                    # pile of node-bootstrapper CSRs
+  ssh -i okd/state/ssh/id_ed25519 core@<VM_IP> 'sudo crictl pods'   # static pods only
+  ```
+
+  Do **not** treat the node's `Ready` condition or its `lastHeartbeatTime` as
+  evidence of life: the condition is served from etcd and stays `True`
+  indefinitely, and kubelet only rewrites `lastHeartbeatTime` every ~5 minutes
+  even on a completely healthy node. The **node lease** is the only
+  trustworthy liveness signal. `require_live_cluster` in
+  [`scripts/lib/common.sh`](../scripts/lib/common.sh) asserts it and refuses
+  to run: `chris-deploy`, `chris-seed`, `okd-postinstall`, `okd-verify` and
+  `smoke`. `chris-teardown`/`chris-nuke` and `chris-status` use the advisory
+  form instead — they warn and continue, because tearing down or inspecting a
+  broken deployment is exactly what you want to be able to do. The steps
+  inside `okd-install` that run before the cluster exists (`net-setup`,
+  `okd-vm`, `okd-wait`) are necessarily unguarded.
+
+- **The downstream symptom that usually surfaces first:** `just chris-nuke`
+  failing with `Error: failed to delete release: chris` (hit 2026-08-26).
+  Helm cannot resolve the chart's `Route` kind while `route.openshift.io`
+  discovery is down — the openshift-apiserver pods are not really running —
+  and it hides the underlying errors behind a generic message unless invoked
+  with `--debug`. `chris-teardown` prints that hint whenever the uninstall
+  itself fails, and distinguishes "release absent" from "helm could not answer"
+  so a broken cluster is never reported as "nothing to uninstall". `--nuke`
+  continues past all of it.
+
+- **Autostart surprise:** the VM is created with `--autostart`, so a host
+  reboot silently brings the cluster back — including straight back into the
+  state above. Check with `virsh -c qemu:///system dominfo okd-sno`.
 
 - **Dormant >2 weeks:** recreate (`just okd-teardown && just okd-install`)
   instead of resurrecting — it's faster than certificate archaeology.
@@ -305,13 +365,23 @@ First stop for anything ChRIS: `just chris-status`, then
 - **redeploy fails with an immutable-PVC or "cannot set pfcon..." error**
   → you changed storage-affecting values on a live release; the chart
   guards against self-destruction. `just chris-nuke && just chris-deploy`.
+- **`Error: failed to delete release: chris`** on teardown → that is Helm's
+  generic wrapper; the real errors are hidden unless you add `--debug`.
+  `chris-teardown` prints the exact `--debug` command on failure. When it is
+  caused by a broken cluster rather than a broken release (Helm cannot map
+  the chart's `Route` kind because `route.openshift.io` discovery is down),
+  the cure is [`just okd-doctor`](#certificates-and-long-lived-clusters), not
+  anything ChRIS-side.
 
 ## Teardown
 
 - `just chris-teardown` — uninstall the ChRIS release, keep PVCs (data) and
   the project for a fast redeploy.
 - `just chris-nuke` — additionally delete PVCs, the `chris` project, and
-  the bitnami tag mirror.
+  the bitnami tag mirror. Every step before the project delete is
+  **best-effort**: a failing Helm uninstall becomes a warning and the run
+  continues, because deleting the project removes the release and everything
+  it created anyway. Only the project delete itself is fatal.
 - `just okd-teardown` — destroy VM + cluster state, keep binaries/network.
   Anything ChRIS dies with the cluster.
 - `just okd-nuke` — additionally remove the libvirt network, restore/stop

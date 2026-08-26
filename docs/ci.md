@@ -76,7 +76,8 @@ just smoke | tail -1 | jq .failed_step
 
 Exit code `2` (setup problem: bad credentials, missing plugins, unreachable
 Route — and, from `just smoke`, wrapper bootstrap failures like a missing
-seeded password, unavailable router CA, or invalid harness configuration)
+seeded password, unavailable router CA, invalid harness configuration, or a
+cluster whose kubelet has stopped reporting)
 should be treated as an *infrastructure* alert, not a product regression —
 the journey never ran. Wrapper failures carry `"failed_step": "bootstrap"`
 in the verdict, so the `tail -1 | jq` recipe above works for them too.
@@ -84,8 +85,11 @@ in the verdict, so the `tail -1 | jq` recipe above works for them too.
 ## Open items (deliberately deferred)
 
 - Which repo hosts the workflow, and runner provisioning on the harness box.
-  Unit tests (`pytest smoke/tests`, no network needed) could run on hosted
-  runners immediately.
+  Both offline suites — `just test-liveness` (26 assertions over the
+  cluster-liveness helpers, `admin_oc` stubbed) and `pytest smoke/tests`
+  (54 tests) — need no cluster and no network, so they could run on hosted
+  runners immediately. `shellcheck scripts/*.sh scripts/lib/*.sh tests/*.sh`
+  is clean and picks up `.shellcheckrc` automatically, so it can gate too.
 - A `workflow_dispatch` input for `--keep` when debugging via CI.
 - Against supported Red Hat OpenShift: same test, corporate DNS/PKI replaces
   sslip.io + `router-ca.crt` (see [okd-vs-ocp.md](okd-vs-ocp.md)).

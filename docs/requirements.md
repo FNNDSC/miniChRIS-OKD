@@ -11,9 +11,23 @@ the LAN against a `lan`-mode box).
 
 | Tier | Host minimum | VM sizing (`config.env`) | Expectation |
 |---|---|---|---|
-| **Minimum** | 10 threads, 32 GiB RAM, 250 GB free, KVM | 8 vCPU / 24 GiB / 150 GB | Cluster + ChRIS + smoke test pass; sluggish console |
+| **Minimum** | 10 threads, >32 GiB RAM (see note), 200 GB free, KVM | 8 vCPU / 24 GiB / 150 GB | Cluster + ChRIS + smoke test pass; sluggish console |
 | **Comfortable** | 12–16 threads, 64 GiB, 400 GB | 10 vCPU / 32 GiB / 200 GB (default) | Committed defaults |
 | **Reference (miami.local)** | 16 threads, 123 GiB, ~880 GB NVMe | up to 12 vCPU / 64 GiB | Headroom for UI chart, load experiments |
+
+Each "host minimum" is the VM sizing beside it plus `host-check`'s fixed
+headroom (2 threads, 8 GiB, 50 GB) — so the **defaults need 12 threads /
+40 GiB / 250 GB free**, and reaching the Minimum tier's host figures means
+applying the Minimum VM overrides below as well.
+
+**The RAM figures are `MemTotal`, not nameplate.** `host-check` reads
+`/proc/meminfo`, which reports a few percent below nominal once firmware and
+the kernel have taken their share — measured 3.7 % on miami.local (a 128 GiB
+box reports 126 189 MiB). So a nominally **32 GiB machine reports ~31 550 MiB
+and misses the Minimum tier's 32 768 MiB by about 1.2 GiB**. On such a box
+either accept a smaller VM (`VM_RAM_MIB=22528`, below the documented minimum —
+expect slow operator settling) or use the next size up. The same 4 % applies to
+the defaults: 40 GiB nominal is not enough, 48 GiB is.
 
 Minimum-tier example override (`config.local.env`):
 
@@ -38,14 +52,26 @@ An **8-thread host is the practical edge**: headroom caps you at `VM_VCPUS=6`,
 two below the Minimum tier. Such a box does install and does run ChRIS, but
 every operator rollout is slow — and the first casualty is the post-install
 cluster-stability wait, because it needs one contiguous window in which *all*
-~34 operators are simultaneously settled. If `okd-verify`'s
-`cluster-operators` check times out, give it a bigger budget in
-`config.local.env`:
+~34 operators are simultaneously settled.
+
+Note that **RAM, not CPU, is usually what actually blocks you** on a box this
+size. The headroom checks are hard failures, and an 8-thread desktop typically
+has 32 GiB — which reports ~31 550 MiB, so it cannot host the default 32 GiB VM
+(needs 40 960 MiB) *or* the Minimum tier's 24 GiB VM (needs 32 768 MiB). Drop
+`VM_RAM_MIB` as well or preflight fails outright:
 
 ```sh
 VM_VCPUS=6
+VM_RAM_MIB=22528          # 22 GiB + 8 GiB headroom fits under ~31 550 MiB
+VM_DISK_GB=150
 CLUSTER_STABLE_TIMEOUT=40m
 ```
+
+Both `VM_VCPUS=6` and `VM_RAM_MIB=22528` sit between the hard floor and the
+Minimum tier, so `host-check` advises and continues rather than failing. The
+enlarged `CLUSTER_STABLE_TIMEOUT` is the one that matters in practice: a slow
+box passes preflight and installs, then fails `okd-verify`'s
+`cluster-operators` check on the default 20 m budget.
 
 [troubleshooting.md](troubleshooting.md#cluster-operators-fails) explains how
 to tell a slow settle apart from a genuinely broken operator.

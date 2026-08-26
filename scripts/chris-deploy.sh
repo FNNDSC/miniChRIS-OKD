@@ -16,8 +16,8 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/lib/chris.sh"
 
-require_cmd oc helm
-require_cluster
+require_cmd oc helm jq
+require_live_cluster
 
 HEART_TIMEOUT=30m     # first run pulls every image and runs DB migrations
 ROLLOUT_TIMEOUT=15m

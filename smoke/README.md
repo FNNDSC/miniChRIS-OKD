@@ -24,8 +24,8 @@ pfcon/pman or the chart internals, so it survives a compute-backend swap.
 
 `just smoke` honors the same contract: any bootstrap failure in the wrapper
 (missing python3, no seeded password, router CA unavailable, invalid harness
-configuration) exits `2` and emits the same JSON verdict with
-`"failed_step": "bootstrap"`.
+configuration, or a cluster that answers but is not live) exits `2` and emits
+the same JSON verdict with `"failed_step": "bootstrap"`.
 
 The last stdout line is always a single-line JSON verdict
 (`{"verdict": "pass", "exit_code": 0, "failed_step": null, "steps": [...], ...}`)

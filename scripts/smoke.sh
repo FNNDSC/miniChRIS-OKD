@@ -68,6 +68,15 @@ if [[ "${SETUP_ONLY}" == yes ]]; then
   exit 0
 fi
 
+# --- harness-side liveness ---------------------------------------------------
+# When the admin kubeconfig is present we are on the harness host and can tell
+# a broken cluster from a broken product. Refuse to blame ChRIS for a cluster
+# whose kubelet is not running; DIE_STATUS=2 makes this a setup failure.
+if [[ -f "${ADMIN_KUBECONFIG}" ]]; then
+  require_cmd jq
+  require_live_cluster
+fi
+
 # --- credentials: the Phase 2 seeded test user -------------------------------
 if [[ -z "${CHRIS_SMOKE_PASSWORD:-}" && -z "${CHRIS_SMOKE_PASSWORD_FILE:-}" ]]; then
   [[ -f "${CHRIS_TEST_PASSWORD_FILE}" ]] \

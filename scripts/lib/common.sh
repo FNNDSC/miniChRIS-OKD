@@ -153,7 +153,159 @@ require_cluster() {
 harden_install_auth() {
   [[ -d "${INSTALL_DIR}/auth" ]] || return 0
   chmod 700 "${INSTALL_DIR}/auth"
-  chmod 600 "${INSTALL_DIR}/auth/"*
+  # find, not a glob: an empty auth/ would hand chmod a literal '*' and, under
+  # set -e, take the caller down with it.
+  find "${INSTALL_DIR}/auth" -maxdepth 1 -type f -exec chmod 600 {} +
+}
+
+# --- cluster liveness ---------------------------------------------------------
+# A cluster that was powered off across the 24-hour bootstrap certificate
+# rotation comes back half-dead: kubelet's client certificate has expired, so
+# it authenticates as system:anonymous and can start only the static
+# control-plane pods, while kube-apiserver keeps serving the last state etcd
+# recorded. Every read then lies — nodes report Ready, workloads report
+# Running — and the real symptom surfaces much later as something unrelated
+# (a Helm uninstall that cannot resolve Route, an operator wait that never
+# settles). See docs/troubleshooting.md; 'just okd-doctor' diagnoses + repairs.
+#
+# Everything below FAILS CLOSED. Empty output is how these helpers say
+# "healthy", so an error that produced silence would disable precisely the
+# check that exists to catch a cluster lying about itself.
+
+# The staleness threshold is NODE_LEASE_MAX_AGE (config.env). The node lease
+# is used rather than the Ready condition's lastHeartbeatTime because kubelet
+# only rewrites that every ~5 minutes when nothing has changed, so a perfectly
+# healthy node routinely looks minutes stale there — whereas it renews its
+# lease every ~10s.
+#
+# Validated here because the value is passed to jq as JSON: a duration-style
+# typo (NODE_LEASE_MAX_AGE=120s — the neighbouring CLUSTER_STABLE_* knobs are
+# durations, so it is the natural mistake) would make every lease query fail,
+# and a failed query that returned silence would read as "healthy" forever.
+[[ "${NODE_LEASE_MAX_AGE}" =~ ^[0-9]+$ ]] \
+  || die "NODE_LEASE_MAX_AGE must be a whole number of seconds (got '${NODE_LEASE_MAX_AGE}')"
+
+# count_lines TEXT — non-empty lines in TEXT (0 for the empty string).
+count_lines() { [[ -n "$1" ]] && grep -c . <<<"$1" || printf 0; }
+
+# cluster_api_ok — true when kube-apiserver answers its readiness endpoint.
+# Retried briefly on purpose: this gates whole installs and deploys, and a
+# single dropped probe (router blip, apiserver mid-restart) must not fail one.
+cluster_api_ok() {
+  local attempt
+  for attempt in 1 2 3; do
+    admin_oc get --raw /readyz --request-timeout=10s >/dev/null 2>&1 && return 0
+    [[ "${attempt}" -eq 3 ]] || sleep 3
+  done
+  return 1
+}
+
+# node_lease_problems — one complete, human-readable line per node whose
+# kubelet is not renewing its lease; nothing at all when every kubelet is live.
+# Callers only indent what comes back, so the phrasing lives here.
+#
+# Every failure path emits a problem line instead of staying silent: an
+# unreadable lease list, an unparseable list, no leases at all, or a timestamp
+# jq cannot read. The jq try/catch matters especially — '.items[]' aborts the
+# whole stream at the first throwing item, which on a single-node cluster
+# means one bad timestamp would hide the only node there is.
+node_lease_problems() {
+  local json count
+  json="$(admin_oc get leases -n kube-node-lease -o json --request-timeout=15s 2>/dev/null)" \
+    || { printf 'could not read node leases (kube-node-lease is unreadable)\n'; return 0; }
+
+  count="$(jq -r '.items | length' <<<"${json}" 2>/dev/null)" || count=""
+  [[ "${count}" =~ ^[0-9]+$ ]] \
+    || { printf 'could not parse the node lease list\n'; return 0; }
+  [[ "${count}" -gt 0 ]] \
+    || { printf 'no node leases exist — no kubelet has ever registered\n'; return 0; }
+
+  jq -r --argjson max "${NODE_LEASE_MAX_AGE}" '
+      .items[]
+      | (.metadata.name // "<unnamed>") as $node
+      | (try ((.spec.renewTime // "") | sub("\\.[0-9]+"; "") | fromdateiso8601)
+         catch null) as $renew
+      | if $renew == null then
+          "node \($node) has no usable lease renewTime"
+        else
+          ((now - $renew) | floor) as $age
+          | if $age > $max then
+              "node \($node) has not renewed its lease in \($age)s (a live kubelet renews every ~10s)"
+            else empty end
+        end' <<<"${json}" 2>/dev/null \
+    || printf 'could not evaluate node lease ages\n'
+}
+
+# pending_kubelet_csrs — names of unapproved kubelet client/serving CSRs. They
+# pile up when kubelet has lost its credentials: it keeps requesting a new
+# certificate, but cluster-machine-approver is an ordinary pod that a
+# credential-less kubelet cannot start, so nothing ever approves them.
+#
+# A query failure yields no names, which makes okd-doctor decline to repair
+# rather than repair the wrong thing — the safe direction for this one.
+pending_kubelet_csrs() {
+  admin_oc get csr -o json --request-timeout=15s 2>/dev/null \
+    | jq -r '
+        .items[]
+        | select((.status.conditions // []) | length == 0)
+        | select((.spec.signerName // "")
+                 | test("^kubernetes\\.io/(kube-apiserver-client-kubelet|kubelet-serving)$"))
+        | .metadata.name' 2>/dev/null || true
+}
+
+# cluster_liveness_problem — why the cluster cannot be trusted right now, or
+# nothing when it is healthy. The fatal guard (require_live_cluster) and the
+# advisory guard (warn_unless_live_cluster) render exactly this text, so the
+# diagnosis itself lives in one place; okd-doctor and okd-verify add their own
+# framing around it for their own output formats.
+cluster_liveness_problem() {
+  local problems pending line
+  if ! cluster_api_ok; then
+    printf 'kube-apiserver at %s is not answering /readyz\n' "${API_URL}"
+    printf "  is the VM running? 'virsh -c qemu:///system list'"
+    return 0
+  fi
+  problems="$(node_lease_problems)"
+  if [[ -n "${problems}" ]]; then
+    # One retry before blocking: this gate stops installs and deploys, and a
+    # lease can read briefly stale across an apiserver restart or a slow read.
+    sleep 5
+    problems="$(node_lease_problems)"
+  fi
+  [[ -n "${problems}" ]] || return 0
+
+  printf 'kubelet is not reporting — the API is serving stale data:\n'
+  while IFS= read -r line; do
+    [[ -z "${line}" ]] || printf '  %s\n' "${line}"
+  done <<<"${problems}"
+  pending="$(pending_kubelet_csrs)"
+  [[ -z "${pending}" ]] \
+    || printf '  %s kubelet CSR(s) pending — kubelet has lost its client certificate\n' \
+         "$(count_lines "${pending}")"
+  printf "  until this is fixed, 'oc get nodes/pods' reports Ready/Running for workloads that are not running"
+}
+
+# require_live_cluster — installed, serving, and kubelet actually reporting.
+# Use in anything that changes cluster state: the reads it protects would
+# otherwise succeed against stale data and fail confusingly much later.
+require_live_cluster() {
+  local problem
+  require_cluster
+  problem="$(cluster_liveness_problem)"
+  [[ -z "${problem}" ]] || die "${problem}
+  run 'just okd-doctor' to diagnose and repair"
+}
+
+# warn_unless_live_cluster — advisory form for commands that must still work
+# against a broken cluster (teardown, status): say what is wrong, then let the
+# caller decide. Silent when the cluster was never installed.
+warn_unless_live_cluster() {
+  local problem
+  [[ -f "${ADMIN_KUBECONFIG}" ]] || return 0
+  problem="$(cluster_liveness_problem)"
+  [[ -n "${problem}" ]] || return 0
+  warn "${problem}"
+  warn "continuing anyway — 'just okd-doctor' repairs the cluster itself"
 }
 
 # render_template SRC DST — envsubst SRC into DST, substituting exactly the
@@ -163,6 +315,7 @@ render_template() {
   [[ -f "${src}" ]] || die "template not found: ${src}"
   # '|| true': under pipefail a variable-free template would otherwise kill
   # the script here instead of reaching the plain-copy branch below.
+  # shellcheck disable=SC2016  # '${...}' here is the pattern being matched
   vars="$(grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' "${src}" | tr -d '${}' | sort -u || true)"
   if [[ -z "${vars}" ]]; then
     cp "${src}" "${dst}"
@@ -172,7 +325,7 @@ render_template() {
     [[ -n "${!var:-}" ]] || missing+=("${var}")
   done
   [[ ${#missing[@]} -eq 0 ]] || die "unset variable(s) for $(basename "${src}"): ${missing[*]}"
-  # shellcheck disable=SC2046  # word-splitting of ${vars} is intentional
+  # shellcheck disable=SC2016,SC2086  # literal '${...}' for envsubst; word-splitting of ${vars} is intentional
   subst="$(printf '${%s} ' ${vars})"
   mkdir -p "$(dirname "${dst}")"
   envsubst "${subst}" <"${src}" >"${dst}"

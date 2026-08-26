@@ -1,0 +1,11 @@
+# Project shellcheck configuration, so `shellcheck scripts/*.sh` needs no flags.
+
+# Every script sources its libs via "$(cd "$(dirname "$0")" && pwd)/lib/...",
+# which shellcheck cannot resolve statically; point it at the real directory.
+external-sources=true
+source-path=scripts
+
+# Configuration values (VM_NET_NAME, CLUSTER_NAME, VM_IP, ...) are defined in
+# config.env, which lib/common.sh sources dynamically at run time. shellcheck
+# cannot follow that, so it reports every one of them as possibly-misspelled.
+disable=SC2153

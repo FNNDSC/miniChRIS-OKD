@@ -37,12 +37,14 @@ case "${cmd}" in
     echo "  oc config use-context admin     # ...and this switches back"
     ;;
   env)
+    # shellcheck disable=SC2016  # ${PATH} must stay literal in eval-able output
     printf 'export PATH=%q:"${PATH}"\n' "${BIN_DIR}"
     if [[ -f "${ADMIN_KUBECONFIG}" ]]; then
       printf 'export KUBECONFIG=%q\n' "${ADMIN_KUBECONFIG}"
     fi
     ;;
   kubeconfig)
+    require_cluster
     printf 'export KUBECONFIG=%q\n' "${ADMIN_KUBECONFIG}"
     ;;
   versions)

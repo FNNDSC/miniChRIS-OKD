@@ -15,8 +15,8 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 source "$(cd "$(dirname "$0")" && pwd)/lib/chris.sh"
 
-require_cmd oc envsubst openssl
-require_cluster
+require_cmd oc envsubst openssl jq
+require_live_cluster
 require_chris_release
 
 SEED_TIMEOUT=900  # seconds; also rendered into the Job's activeDeadlineSeconds

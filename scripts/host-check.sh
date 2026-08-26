@@ -100,9 +100,11 @@ for cmd in virsh virt-install qemu-img envsubst jq curl ss getent openssl dig; d
   fi
 done
 for cmd in oc openshift-install; do
-  command -v "${cmd}" >/dev/null 2>&1 \
-    && ok "tool: ${cmd} ($(command -v "${cmd}"))" \
-    || note "tool: ${cmd} not present yet — fetched by okd-download during okd-install"
+  if command -v "${cmd}" >/dev/null 2>&1; then
+    ok "tool: ${cmd} ($(command -v "${cmd}"))"
+  else
+    note "tool: ${cmd} not present yet — fetched by okd-download during okd-install"
+  fi
 done
 
 if systemctl is-active --quiet libvirtd 2>/dev/null \

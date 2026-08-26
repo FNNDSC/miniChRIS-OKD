@@ -14,7 +14,7 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
 require_cmd oc curl getent jq
-require_cluster
+require_live_cluster
 [[ -f "${DEVELOPER_PASSWORD_FILE}" ]] || die "developer credentials missing — run okd-postinstall first"
 
 PROJECT=harness-verify
@@ -62,9 +62,25 @@ check_dns() {
   [[ "${api_ip}" == "${ACCESS_IP}" && "${apps_ip}" == "${ACCESS_IP}" ]]
 }
 
+# The Ready condition alone is not evidence: kube-apiserver serves it from
+# etcd, so a node whose kubelet has stopped talking keeps reporting Ready
+# indefinitely. The node lease is the liveness signal — kubelet renews it every
+# ~10s (see node_lease_problems in lib/common.sh).
+#
+# require_live_cluster already rejected that state before this file got here,
+# so this is defence in depth: it catches a cluster that degrades *during* the
+# run, which is otherwise a long checklist reported against stale data.
 check_node_ready() {
   admin_oc get nodes -o wide
   admin_oc wait node --all --for=condition=Ready --timeout=120s
+  local problems
+  problems="$(node_lease_problems)"
+  if [[ -n "${problems}" ]]; then
+    echo "kubelet is not reporting: ${problems}"
+    echo "the Ready condition above is stale etcd data; run 'just okd-doctor'"
+    return 1
+  fi
+  echo "node lease is fresh — kubelet is really running"
 }
 
 # dump_unstable_operators — every operator that is not Available, or that is

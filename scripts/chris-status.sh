@@ -16,8 +16,12 @@ if [[ "${1:-}" == open ]]; then
   exit 0
 fi
 
-require_cmd oc helm
+require_cmd oc helm jq
 require_cluster
+# Advisory, not fatal: reading the state of a broken deployment is reasonable,
+# but the pod table below comes from etcd and will look healthy even when
+# nothing is running. Say so before printing it.
+warn_unless_live_cluster
 
 if ! admin_oc get namespace "${CHRIS_NAMESPACE}" >/dev/null 2>&1; then
   die "project '${CHRIS_NAMESPACE}' not found — run 'just chris-deploy'"

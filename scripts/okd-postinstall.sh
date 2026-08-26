@@ -12,8 +12,8 @@
 set -euo pipefail
 source "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
-require_cmd oc envsubst openssl
-require_cluster
+require_cmd oc envsubst openssl jq
+require_live_cluster
 
 DEVELOPER_USER=developer
 OAUTH_LOGIN_TIMEOUT=900  # seconds; the oauth stack redeploys after the IdP patch

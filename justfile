@@ -32,6 +32,11 @@ okd-install: host-check net-setup okd-download render okd-iso okd-vm okd-wait ok
 okd-verify:
     @scripts/okd-verify.sh
 
+# Diagnose (and repair) a cluster that answers but is not live — e.g. kubelet certs expired while the VM was off.
+[group('(1) harness')]
+okd-doctor *args:
+    @scripts/okd-doctor.sh {{ args }}
+
 # Print console/API URLs and credentials.
 [group('(1) harness')]
 okd-console:
@@ -96,6 +101,11 @@ chris-nuke *args:
 [group('(3) test')]
 smoke *args:
     @scripts/smoke.sh {{ args }}
+
+# Offline unit tests for the cluster-liveness helpers — no cluster needed.
+[group('(3) test')]
+test-liveness:
+    @tests/test_liveness.sh
 
 # Prepare the smoke test virtualenv without running the test (CI pre-bake).
 [group('(3) test')]
