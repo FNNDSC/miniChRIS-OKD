@@ -7,6 +7,28 @@ qualifies and why not. macOS cannot host the harness (libvirt/KVM is
 Linux-only) — Macs participate as clients (`oc`, console, smoke test over
 the LAN against a `lan`-mode box).
 
+## Surveying a candidate host
+
+`host-check` needs a prepared clone. To find out whether a box is worth
+preparing at all, run the survey against it from any machine — it is a
+single self-contained script with no repo, sudo or libvirt dependency:
+
+```sh
+ssh user@candidate 'bash -s' < scripts/host-survey.sh
+just host-survey user@candidate        # same thing
+just host-survey                       # this box
+```
+
+It reports the sizing tier the box lands in (and the `config.local.env`
+overrides it would need), whether the volume that would hold the VM image is
+SSD/NVMe-backed (home directories on NFS or spinning disks are flagged — set
+`IMAGES_DIR` or clone elsewhere), whether the distro is on the automated
+`host-setup.sh` path, free ports and firewall state for `lan` mode, and —
+the part `host-check` cannot tell you before you commit to a mode — whether
+the resolver passes `10.x` *and* `192.168.x` sslip.io answers, i.e. which
+`ACCESS_MODE` is safe ([networking.md](networking.md)). Exit 0 means viable
+(possibly with overrides); things `host-setup` fixes are notes, not failures.
+
 ## Sizing tiers
 
 | Tier | Host minimum | VM sizing (`config.env`) | Expectation |

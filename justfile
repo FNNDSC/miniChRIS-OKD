@@ -17,6 +17,11 @@ _default:
 host-setup:
     @scripts/host-setup.sh
 
+# Survey a candidate box before cloning anything: tier, SSD, distro, which ACCESS_MODE its resolver allows. Remote: just host-survey user@box
+[group('(1) harness')]
+host-survey *host:
+    @if [ -n "{{ host }}" ]; then ssh "{{ host }}" 'bash -s' < scripts/host-survey.sh; else scripts/host-survey.sh; fi
+
 # Preflight: can this host run the harness? (CPU/RAM/disk/KVM/tools/DNS/ports)
 [group('(1) harness')]
 host-check:
