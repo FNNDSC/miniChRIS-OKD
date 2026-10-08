@@ -222,8 +222,11 @@ is stale data being replayed out of etcd.
   yet; re-login (host-setup adds you).
 - **qemu can't open the disk image** (`Permission denied`) — the qemu user
   can't traverse to `IMAGES_DIR` (e.g. `0700` home directories). Either
-  `setfacl -m u:libvirt-qemu:x` each path component, or set
-  `IMAGES_DIR=/var/lib/libvirt/images/okd` in `config.local.env`.
+  `setfacl -m u:libvirt-qemu:x` each path component, or create a directory
+  you own outside your home (`sudo install -d -o "$USER" -g "$(id -gn)"
+  /var/lib/libvirt/images/okd`) and set `IMAGES_DIR=/var/lib/libvirt/images/okd`
+  in `config.local.env`. It must be yours: `okd-create-vm` and `okd-teardown`
+  create and delete there without sudo.
 - **`--osinfo centos-stream10` rejected** — old libosinfo; the script
   auto-falls-back to `generic` (harmless: all devices are explicitly
   virtio).
