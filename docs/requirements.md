@@ -7,12 +7,39 @@ qualifies and why not. macOS cannot host the harness (libvirt/KVM is
 Linux-only) — Macs participate as clients (`oc`, console, smoke test over
 the LAN against a `lan`-mode box).
 
+## Surveying a candidate host
+
+`host-check` needs a prepared clone. To find out whether a box is worth
+preparing at all, run the survey against it from any machine — it is a
+single self-contained script with no repo, sudo or libvirt dependency:
+
+```sh
+ssh user@candidate 'bash -s' < scripts/host-survey.sh
+just host-survey user@candidate        # same thing; extra ssh options pass through
+just host-survey                       # this box
+IMAGES_DIR=/data/okd just host-survey user@candidate   # assess a specific images dir
+```
+
+It reports the sizing tier the box lands in, which resource limits it (and the
+`config.local.env` overrides it would need), and whether the volume that would
+hold the VM image is SSD/NVMe-backed. It looks at `$HOME` (the default
+`IMAGES_DIR` lives inside the clone) and every other local volume with room for
+the VM, flags network filesystems and spinning disks, and suggests an
+`IMAGES_DIR` on the best volume — one you can write to, since `okd-create-vm`
+and `okd-teardown` work there as you. It also reports whether the distro is on
+the automated `host-setup.sh` path, free ports and firewall state for `lan`
+mode, and —
+the part `host-check` cannot tell you before you commit to a mode — whether
+the resolver passes `10.x` *and* `192.168.x` sslip.io answers, i.e. which
+`ACCESS_MODE` is safe ([networking.md](networking.md)). Exit 0 means viable
+(possibly with overrides); things `host-setup` fixes are notes, not failures.
+
 ## Sizing tiers
 
 | Tier | Host minimum | VM sizing (`config.env`) | Expectation |
 |---|---|---|---|
 | **Minimum** | 10 threads, >32 GiB RAM (see note), 200 GB free, KVM | 8 vCPU / 24 GiB / 150 GB | Cluster + ChRIS + smoke test pass; sluggish console |
-| **Comfortable** | 12–16 threads, 64 GiB, 400 GB | 10 vCPU / 32 GiB / 200 GB (default) | Committed defaults |
+| **Comfortable** | 12 threads, >40 GiB RAM (see note), 250 GB free, KVM | 10 vCPU / 32 GiB / 200 GB (default) | Committed defaults |
 | **Reference (miami.local)** | 16 threads, 123 GiB, ~880 GB NVMe | up to 12 vCPU / 64 GiB | Headroom for UI chart, load experiments |
 
 Each "host minimum" is the VM sizing beside it plus `host-check`'s fixed

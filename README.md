@@ -29,6 +29,14 @@ Any modern distro works; the automated `host-setup.sh` covers apt-based distros
 (Ubuntu/Debian) — Fedora/RHEL users install the package equivalents manually
 first ([docs/requirements.md](docs/requirements.md#distro-support)).
 
+Not sure a box qualifies? Survey it first, from anywhere, before cloning
+anything on it — it reports the sizing tier, whether the VM volume is
+SSD-backed, the distro path, and which `ACCESS_MODE` its resolver allows:
+
+```sh
+ssh user@candidate 'bash -s' < scripts/host-survey.sh    # or: just host-survey user@candidate
+```
+
 ```sh
 git clone https://github.com/FNNDSC/miniChRIS-OKD && cd miniChRIS-OKD
 
@@ -54,6 +62,7 @@ verification checklist.
 ## Everyday commands
 
 ```text
+just host-survey [h]  survey a candidate box (remote via ssh) before cloning on it
 just host-check       preflight — does this box qualify?
 just okd-install      full cluster bring-up (idempotent steps)
 just okd-verify       re-run the validation checklist (HARBOR-planning#129)
